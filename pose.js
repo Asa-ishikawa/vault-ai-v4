@@ -78,4 +78,4 @@ function onResults(results) {
 }
 const d = calculateDScore(results.poseLandmarks);
 
-finishAnalysis(d);
+dScore.textContent = d.toFixed(1);

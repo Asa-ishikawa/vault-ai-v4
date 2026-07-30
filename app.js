@@ -75,6 +75,11 @@ detectBtn.addEventListener("click", () => {
         .then(() => {
 
             startPose(video, canvas, ctx);
+video.onended = () => {
+
+    finishAnalysis(dScore.textContent);
+
+};
 
         })
         .catch((err) => {

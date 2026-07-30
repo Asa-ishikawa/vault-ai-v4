@@ -6,48 +6,37 @@
 // ----------------------------
 // Dスコア計算
 // ----------------------------
-
 function calculateDScore(landmarks) {
 
-    // 仮採点
-    // 将来ここをAI判定に置き換える
+    // 左腕
+    const leftElbow = getAngle(
+
+        landmarks[11], // 左肩
+        landmarks[13], // 左肘
+        landmarks[15]  // 左手首
+
+    );
+
+    // 右腕
+    const rightElbow = getAngle(
+
+        landmarks[12],
+        landmarks[14],
+        landmarks[16]
+
+    );
 
     let score = 5.0;
 
+    // 両腕がほぼ伸びている
+
+    if (leftElbow > 160 && rightElbow > 160) {
+
+        score += 1.0;
+
+    }
+
     return score;
-
-}
-
-// ----------------------------
-// 肘の角度
-// ----------------------------
-
-function getAngle(a, b, c) {
-
-    const ab = {
-        x: a.x - b.x,
-        y: a.y - b.y
-    };
-
-    const cb = {
-        x: c.x - b.x,
-        y: c.y - b.y
-    };
-
-    const dot =
-        ab.x * cb.x +
-        ab.y * cb.y;
-
-    const mag1 =
-        Math.sqrt(ab.x * ab.x + ab.y * ab.y);
-
-    const mag2 =
-        Math.sqrt(cb.x * cb.x + cb.y * cb.y);
-
-    const angle =
-        Math.acos(dot / (mag1 * mag2));
-
-    return angle * 180 / Math.PI;
 
 }
 
