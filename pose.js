@@ -76,3 +76,6 @@ function onResults(results) {
     );
 
 }
+const d = calculateDScore(results.poseLandmarks);
+
+finishAnalysis(d);
