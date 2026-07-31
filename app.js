@@ -3,6 +3,9 @@
 // app.js
 // ===============================
 
+// ----------------------------
+// 要素取得
+// ----------------------------
 const videoFile = document.getElementById("videoFile");
 const video = document.getElementById("video");
 const canvas = document.getElementById("outputCanvas");
@@ -16,10 +19,9 @@ const dScore = document.getElementById("dScore");
 const eScore = document.getElementById("eScore");
 const totalScore = document.getElementById("totalScore");
 
-// --------------------
+// ----------------------------
 // 動画選択
-// --------------------
-
+// ----------------------------
 videoFile.addEventListener("change", () => {
 
     const file = videoFile.files[0];
@@ -34,10 +36,9 @@ videoFile.addEventListener("change", () => {
 
 });
 
-// --------------------
-// 動画準備完了
-// --------------------
-
+// ----------------------------
+// 動画情報取得
+// ----------------------------
 video.addEventListener("loadedmetadata", () => {
 
     canvas.width = video.videoWidth;
@@ -45,6 +46,9 @@ video.addEventListener("loadedmetadata", () => {
 
 });
 
+// ----------------------------
+// 動画読込完了
+// ----------------------------
 video.addEventListener("loadeddata", () => {
 
     canvas.style.width = video.clientWidth + "px";
@@ -54,11 +58,10 @@ video.addEventListener("loadeddata", () => {
 
 });
 
-// --------------------
+// ----------------------------
 // AI開始
-// --------------------
-
-detectBtn.addEventListener("click", () => {
+// ----------------------------
+detectBtn.addEventListener("click", async () => {
 
     if (!video.src) {
 
@@ -67,62 +70,80 @@ detectBtn.addEventListener("click", () => {
 
     }
 
-    video.currentTime = 0;
+    // ボタン無効
+    detectBtn.disabled = true;
+    detectBtn.textContent = "解析中...";
 
     status.textContent = "AI解析中...";
 
-    video.play()
-        .then(() => {
+    // スコア初期化
+    dScore.textContent = "-";
+    totalScore.textContent = "-";
 
-            startPose(video, canvas, ctx);
-video.onended = () => {
+    video.currentTime = 0;
 
-    finishAnalysis(dScore.textContent);
+    try {
 
-};
+        await video.play();
 
-        })
-        .catch((err) => {
+        startPose(video, canvas, ctx);
 
-            console.error(err);
+    } catch (err) {
 
-            status.textContent = "動画を再生できません";
+        console.error(err);
 
-        });
+        status.textContent = "動画を再生できません";
+
+        detectBtn.disabled = false;
+        detectBtn.textContent = "AI骨格検出開始";
+
+    }
 
 });
 
-// --------------------
-// AI終了
-// --------------------
+// ----------------------------
+// 動画終了
+// ----------------------------
+video.addEventListener("ended", () => {
 
+    finishAnalysis(Number(dScore.textContent));
+
+});
+
+// ----------------------------
+// AI終了
+// ----------------------------
 function finishAnalysis(score) {
 
-    dScore.textContent = score;
+    dScore.textContent = Number(score).toFixed(1);
 
     updateTotal();
 
+    status.textContent = "解析完了";
+
+    detectBtn.disabled = false;
+    detectBtn.textContent = "AI骨格検出開始";
 
 }
 
 window.finishAnalysis = finishAnalysis;
 
-// --------------------
-// 合計点
-// --------------------
-
+// ----------------------------
+// Eスコア変更
+// ----------------------------
 eScore.addEventListener("input", updateTotal);
 
+// ----------------------------
+// 合計点
+// ----------------------------
 function updateTotal() {
 
     const d = Number(dScore.textContent);
-
     const e = Number(eScore.value);
 
-    if (isNaN(d)) {
+    if (isNaN(d) || isNaN(e)) {
 
         totalScore.textContent = "-";
-
         return;
 
     }
