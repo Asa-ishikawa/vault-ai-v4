@@ -26,10 +26,9 @@ function calculateDScore(landmarks) {
 
     );
 
- status.textContent =
-    "左肘:" + leftElbow.toFixed(0) +
-    "° 右肘:" + rightElbow.toFixed(0) + "°";   
-
+     console.log("左肘:", leftElbow.toFixed(1));
+    console.log("右肘:", rightElbow.toFixed(1));
+ 
 
     let score = 5.0;
 
