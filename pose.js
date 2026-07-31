@@ -75,7 +75,8 @@ function onResults(results) {
         }
     );
 
-}
+
 const d = calculateDScore(results.poseLandmarks);
 
 dScore.textContent = d.toFixed(1);
+}

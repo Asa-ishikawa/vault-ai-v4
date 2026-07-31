@@ -102,7 +102,6 @@ function finishAnalysis(score) {
 
     updateTotal();
 
-    status.textContent = "解析完了";
 
 }
 
