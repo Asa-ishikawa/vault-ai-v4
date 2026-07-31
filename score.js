@@ -26,6 +26,11 @@ function calculateDScore(landmarks) {
 
     );
 
+ status.textContent =
+    "左肘:" + leftElbow.toFixed(0) +
+    "° 右肘:" + rightElbow.toFixed(0) + "°";   
+
+
     let score = 5.0;
 
     // 両腕がほぼ伸びている
