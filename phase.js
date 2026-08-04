@@ -1,7 +1,7 @@
 // ===============================
-// 跳び箱AI採点システム Ver5.3
+// 跳び箱AI採点システム Ver5.3.1
 // phase.js
-// 動作フェーズ検出
+// 動作フェーズ検出（精度向上版）
 // ===============================
 
 let phaseResult = null;
@@ -11,10 +11,8 @@ let phaseResult = null;
 // ----------------------------
 function detectPhases(frames) {
 
-    if (!frames || frames.length < 10) {
-
+    if (!frames || frames.length < 20) {
         return null;
-
     }
 
     let takeOff = 0;
@@ -22,9 +20,9 @@ function detectPhases(frames) {
     let highestHip = 0;
     let landing = frames.length - 1;
 
-    // ----------------------------
-    // 腰が最も高いフレーム
-    // ----------------------------
+    // =====================================
+    // ① 腰の最高点
+    // =====================================
 
     let minHipY = 999;
 
@@ -43,10 +41,10 @@ function detectPhases(frames) {
 
     });
 
-    // ----------------------------
-    // 手が最も前に出たフレーム
-    // （着手候補）
-    // ----------------------------
+    // =====================================
+    // ② 着手
+    // 手首が最も前に出た瞬間
+    // =====================================
 
     let maxHandX = -999;
 
@@ -68,49 +66,79 @@ function detectPhases(frames) {
 
     });
 
-    // ----------------------------
-    // 踏切
-    // 着手より前で腰が一番低い
-    // ----------------------------
+    // =====================================
+    // ③ 踏切
+    // 両足が床から離れ始める瞬間
+    // =====================================
 
-    let maxHipY = -999;
+    let lastFootY = null;
 
-    for (let i = 0; i < handContact; i++) {
+    for (let i = 1; i < handContact; i++) {
 
-        const hip = getHipCenter(frames[i]);
+        const leftAnkle = getPoint(frames[i], 27);
+        const rightAnkle = getPoint(frames[i], 28);
 
-        if (!hip) continue;
+        if (!leftAnkle || !rightAnkle) continue;
 
-        if (hip.y > maxHipY) {
+        const footY = (leftAnkle.y + rightAnkle.y) / 2;
 
-            maxHipY = hip.y;
-            takeOff = i;
+        if (lastFootY !== null) {
+
+            // 足首が急激に上昇し始めた瞬間
+            if ((lastFootY - footY) > 0.012) {
+
+                takeOff = i;
+                break;
+
+            }
 
         }
 
+        lastFootY = footY;
+
     }
 
-    // ----------------------------
-    // 着地
-    // 最高点以降で腰が一番低い
-    // ----------------------------
+    // 見つからなかった場合
+    if (takeOff === 0) {
 
-    maxHipY = -999;
+        takeOff = Math.max(0, handContact - 10);
+
+    }
+
+    // =====================================
+    // ④ 着地
+    // 足首の高さが安定した最初の瞬間
+    // =====================================
+
+    let lastLandingY = null;
 
     for (let i = highestHip; i < frames.length; i++) {
 
-        const hip = getHipCenter(frames[i]);
+        const leftAnkle = getPoint(frames[i], 27);
+        const rightAnkle = getPoint(frames[i], 28);
 
-        if (!hip) continue;
+        if (!leftAnkle || !rightAnkle) continue;
 
-        if (hip.y > maxHipY) {
+        const footY = (leftAnkle.y + rightAnkle.y) / 2;
 
-            maxHipY = hip.y;
-            landing = i;
+        if (lastLandingY !== null) {
+
+            if (Math.abs(footY - lastLandingY) < 0.003) {
+
+                landing = i;
+                break;
+
+            }
 
         }
 
+        lastLandingY = footY;
+
     }
+
+    // =====================================
+    // 保存
+    // =====================================
 
     phaseResult = {
 
@@ -121,11 +149,11 @@ function detectPhases(frames) {
 
     };
 
-    console.log("===== フェーズ検出 =====");
-    console.log("踏切", takeOff);
-    console.log("着手", handContact);
-    console.log("最高点", highestHip);
-    console.log("着地", landing);
+    console.log("========== Phase ==========");
+    console.log("踏切:", takeOff);
+    console.log("着手:", handContact);
+    console.log("最高点:", highestHip);
+    console.log("着地:", landing);
 
     return phaseResult;
 
