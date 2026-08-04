@@ -1,270 +1,163 @@
 // ===============================
-// 跳び箱AI採点システム Ver5.2
+// 跳び箱AI採点システム Ver5.3
 // pose.js
+// 骨格取得専用
 // ===============================
 
-
-// MediaPipe Pose
 let pose = null;
 
+// 全フレーム保存
+let poseFrames = [];
 
-// 動画・Canvas
-let videoElement = null;
-let canvasElement = null;
-let canvasCtx = null;
-
-
-// 骨格履歴
-let poseHistory = [];
-
-
-// 最終評価結果
-let latestScoreResult = null;
-
+let frameCount = 0;
 
 // ----------------------------
 // Pose開始
 // ----------------------------
 async function startPose(video, canvas, ctx) {
 
-
-    videoElement = video;
-    canvasElement = canvas;
-    canvasCtx = ctx;
-
-
-    // データ初期化
-    poseHistory = [];
-    latestScoreResult = null;
-
-
-
     if (!pose) {
-
 
         pose = new Pose({
 
-            locateFile:(file)=>
-            `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`
+            locateFile: (file) =>
+                `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`
 
         });
-
-
 
         pose.setOptions({
 
-            modelComplexity:1,
-
-            smoothLandmarks:true,
-
-            enableSegmentation:false,
-
-            minDetectionConfidence:0.5,
-
-            minTrackingConfidence:0.5
+            modelComplexity: 1,
+            smoothLandmarks: true,
+            enableSegmentation: false,
+            minDetectionConfidence: 0.5,
+            minTrackingConfidence: 0.5
 
         });
 
+        pose.onResults((results) => {
 
+            onResults(results, video, canvas, ctx);
 
-        pose.onResults(onResults);
-
+        });
 
     }
 
+    frameCount = 0;
 
+    async function analyze() {
+
+        if (video.paused || video.ended) {
+
+            finishAnalysis();
+            return;
+
+        }
+
+        await pose.send({
+
+            image: video
+
+        });
+
+        requestAnimationFrame(analyze);
+
+    }
 
     analyze();
 
-
 }
 
-
-
 // ----------------------------
-// 動画解析
+// フレーム取得
 // ----------------------------
-async function analyze(){
+function onResults(results, video, canvas, ctx) {
 
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    if(
-        videoElement.paused ||
-        videoElement.ended
-    ){
+    if (!results.poseLandmarks) return;
 
-        finishPoseAnalysis();
-
-        return;
-
-    }
-
-
-
-    await pose.send({
-
-        image:videoElement
-
-    });
-
-
-
-    requestAnimationFrame(analyze);
-
-
-}
-
-
-
-// ----------------------------
-// Pose結果
-// ----------------------------
-function onResults(results){
-
-
-
-    canvasCtx.clearRect(
-
-        0,
-        0,
-        canvasElement.width,
-        canvasElement.height
-
-    );
-
-
-
-    if(!results.poseLandmarks){
-
-        return;
-
-    }
-
-
-
-    // 骨格保存
-    poseHistory.push({
-
-
-        time:
-        videoElement.currentTime,
-
-
-        landmarks:
-        results.poseLandmarks
-
-
-    });
-
-
-
-    // 骨格線
     drawConnectors(
 
-        canvasCtx,
-
+        ctx,
         results.poseLandmarks,
-
         POSE_CONNECTIONS,
 
         {
 
-            color:"#00ff00",
-
-            lineWidth:4
+            color: "#00ff00",
+            lineWidth: 4
 
         }
 
     );
 
-
-
-    // 関節
     drawLandmarks(
 
-        canvasCtx,
-
+        ctx,
         results.poseLandmarks,
 
         {
 
-            color:"#ff0000",
-
-            radius:5
+            color: "#ff0000",
+            radius: 5
 
         }
 
     );
 
+    poseFrames.push({
+
+        frame: frameCount,
+
+        time: video.currentTime,
+
+        landmarks: structuredClone(results.poseLandmarks)
+
+    });
+
+    frameCount++;
 
 }
 
-
-
 // ----------------------------
-// 解析終了
+// 全フレーム取得
 // ----------------------------
-function finishPoseAnalysis(){
+function getPoseFrames() {
 
-
-
-    console.log(
-
-        "保存フレーム:",
-        poseHistory.length
-
-    );
-
-
-
-    if(
-        typeof calculateDScore === "function"
-    ){
-
-
-
-        latestScoreResult =
-        calculateDScore(
-            poseHistory
-        );
-
-
-
-        // Dスコア表示
-
-        dScore.textContent =
-        latestScoreResult.score.toFixed(1);
-
-
-
-        // 次の画面表示用保存
-
-        window.latestScoreResult =
-        latestScoreResult;
-
-
-    }
-
-
-
-    status.textContent =
-    "AI評価完了";
-
+    return poseFrames;
 
 }
 
+// ----------------------------
+// リセット
+// ----------------------------
+function clearPoseFrames() {
 
+    poseFrames = [];
+
+    frameCount = 0;
+
+}
+
+// ----------------------------
+// デバッグ
+// ----------------------------
+function printPoseFrames() {
+
+    console.log("取得フレーム数:", poseFrames.length);
+
+    console.log(poseFrames);
+
+}
 
 // ----------------------------
 // 公開
 // ----------------------------
-window.startPose=startPose;
+window.startPose = startPose;
 
-window.poseHistory=poseHistory;
+window.getPoseFrames = getPoseFrames;
 
-if(typeof showFeedback === "function"){
+window.clearPoseFrames = clearPoseFrames;
 
-    showFeedback(
-        latestScoreResult
-    );
-
-}
+window.printPoseFrames = printPoseFrames;

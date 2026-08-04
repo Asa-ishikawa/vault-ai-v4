@@ -1,388 +1,134 @@
 // ===============================
-// 跳び箱AI採点システム Ver5.2
+// 跳び箱AI採点システム Ver5.3
 // app.js
 // ===============================
 
+const videoFile = document.getElementById("videoFile");
+const video = document.getElementById("video");
+const canvas = document.getElementById("outputCanvas");
+const ctx = canvas.getContext("2d");
 
-// ----------------------------
-// 要素取得
-// ----------------------------
+const detectBtn = document.getElementById("detectBtn");
 
-const videoFile =
-document.getElementById("videoFile");
+const status = document.getElementById("status");
 
-const video =
-document.getElementById("video");
-
-const canvas =
-document.getElementById("outputCanvas");
-
-const ctx =
-canvas.getContext("2d");
-
-
-const detectBtn =
-document.getElementById("detectBtn");
-
-
-const status =
-document.getElementById("status");
-
-
-const dScore =
-document.getElementById("dScore");
-
-
-const eScore =
-document.getElementById("eScore");
-
-
-const totalScore =
-document.getElementById("totalScore");
-
-
+const dScore = document.getElementById("dScore");
+const eScore = document.getElementById("eScore");
+const totalScore = document.getElementById("totalScore");
 
 // ----------------------------
 // 動画選択
 // ----------------------------
 
-videoFile.addEventListener(
-"change",
-()=>{
+videoFile.addEventListener("change", () => {
 
+    const file = videoFile.files[0];
 
-    const file =
-    videoFile.files[0];
+    if (!file) return;
 
+    video.src = URL.createObjectURL(file);
 
-    if(!file){
-
-        return;
-
-    }
-
-
-    const url =
-    URL.createObjectURL(file);
-
-
-    video.src =
-    url;
-
-
-    status.textContent =
-    "動画を読み込み中...";
-
+    status.textContent = "動画を読み込み中...";
 
 });
 
-
-
-
 // ----------------------------
-// 動画サイズ設定
+// 動画準備
 // ----------------------------
 
-video.addEventListener(
-"loadedmetadata",
-()=>{
+video.addEventListener("loadedmetadata", () => {
 
-
-    canvas.width =
-    video.videoWidth;
-
-
-    canvas.height =
-    video.videoHeight;
-
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
 
 });
 
+video.addEventListener("loadeddata", () => {
 
+    canvas.style.width = video.clientWidth + "px";
+    canvas.style.height = video.clientHeight + "px";
 
-
-// ----------------------------
-// 読み込み完了
-// ----------------------------
-
-video.addEventListener(
-"loadeddata",
-()=>{
-
-
-    canvas.style.width =
-    video.clientWidth+"px";
-
-
-    canvas.style.height =
-    video.clientHeight+"px";
-
-
-    status.textContent =
-    "動画の読み込み完了";
-
+    status.textContent = "動画準備完了";
 
 });
-
-
-
 
 // ----------------------------
 // AI開始
 // ----------------------------
 
-detectBtn.addEventListener(
-"click",
-async()=>{
+detectBtn.addEventListener("click", () => {
 
+    if (!video.src) {
 
-    if(!video.src){
-
-
-        alert(
-        "動画を選択してください"
-        );
-
-
+        alert("動画を選択してください");
         return;
 
     }
 
+    if (window.clearPoseFrames) clearPoseFrames();
+    if (window.clearPhase) clearPhase();
 
+    dScore.textContent = "-";
+    totalScore.textContent = "-";
 
-    detectBtn.disabled =
-    true;
+    status.textContent = "AI解析中...";
 
+    video.currentTime = 0;
 
-    detectBtn.textContent =
-    "AI解析中...";
+    video.play().then(() => {
 
+        startPose(video, canvas, ctx);
 
-
-    status.textContent =
-    "AI解析中...";
-
-
-    dScore.textContent =
-    "-";
-
-
-    totalScore.textContent =
-    "-";
-
-
-
-    const feedback =
-    document.getElementById(
-        "feedback"
-    );
-
-
-    if(feedback){
-
-        feedback.innerHTML =
-        "解析中...";
-
-    }
-
-
-
-    video.currentTime =
-    0;
-
-
-
-    try{
-
-
-        await video.play();
-
-
-        startPose(
-            video,
-            canvas,
-            ctx
-        );
-
-
-
-    }
-    catch(error){
-
-
-        console.error(error);
-
-
-        status.textContent =
-        "動画再生エラー";
-
-
-        resetButton();
-
-
-    }
-
-
+    });
 
 });
 
-
-
-
 // ----------------------------
-// 動画終了
+// AI終了
 // ----------------------------
 
-video.addEventListener(
-"ended",
-()=>{
+function finishAnalysis() {
 
+    const frames = getPoseFrames();
 
-    finishAnalysis();
+    const phase = detectPhases(frames);
 
+    const result = calculateDScore(frames, phase);
 
-});
+    dScore.textContent = result.score.toFixed(1);
 
+    if (typeof showFeedback === "function") {
 
-
-
-// ----------------------------
-// 解析終了
-// ----------------------------
-
-function finishAnalysis(){
-
-
-
-    status.textContent =
-    "AI評価完了";
-
-
-
-    detectBtn.disabled =
-    false;
-
-
-    detectBtn.textContent =
-    "AI骨格検出開始";
-
-
-
-    // 評価結果表示
-
-    if(
-        window.latestScoreResult !== null &&
-    window.latestScoreResult !== undefined
-    ){
-
-
-        const result =
-        window.latestScoreResult;
-
-
-
-        dScore.textContent =
-        result.score.toFixed(1);
-
-
-
-        if(
-            typeof showFeedback
-            === "function"
-        ){
-
-
-            showFeedback(
-                result
-            );
-
-
-        }
-
+        showFeedback(result);
 
     }
-
 
     updateTotal();
 
+    status.textContent = "解析完了";
 
 }
 
-
-
-// ----------------------------
-// ボタン復帰
-// ----------------------------
-
-function resetButton(){
-
-
-    detectBtn.disabled =
-    false;
-
-
-    detectBtn.textContent =
-    "AI骨格検出開始";
-
-
-}
-
-
-
-// ----------------------------
-// Eスコア変更
-// ----------------------------
-
-eScore.addEventListener(
-"input",
-updateTotal
-);
-
-
-
+window.finishAnalysis = finishAnalysis;
 
 // ----------------------------
 // 合計点
 // ----------------------------
 
-function updateTotal(){
+eScore.addEventListener("input", updateTotal);
 
+function updateTotal() {
 
+    const d = Number(dScore.textContent);
+    const e = Number(eScore.value);
 
-    const d =
-    Number(
-        dScore.textContent
-    );
+    if (isNaN(d)) {
 
-
-
-    const e =
-    Number(
-        eScore.value
-    );
-
-
-
-    if(
-        isNaN(d)
-    ){
-
-
-        totalScore.textContent =
-        "-";
-
-
+        totalScore.textContent = "-";
         return;
 
     }
 
-
-
-    totalScore.textContent =
-    (
-        d + e
-    ).toFixed(1);
-
-
+    totalScore.textContent = (d + e).toFixed(1);
 
 }
