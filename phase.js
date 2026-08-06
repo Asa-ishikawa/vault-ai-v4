@@ -165,6 +165,18 @@ function detectPhases(frames) {
 
 function getPhaseResult() {
 
+const phaseInfo = document.getElementById("phaseInfo");
+
+if (phaseInfo) {
+
+    phaseInfo.innerHTML = `
+        <strong>踏切：</strong> ${takeOff}<br>
+        <strong>着手：</strong> ${handContact}<br>
+        <strong>最高点：</strong> ${highestHip}<br>
+        <strong>着地：</strong> ${landing}
+    `;
+
+}
     return phaseResult;
 
 }
