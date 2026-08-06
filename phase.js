@@ -148,23 +148,15 @@ function detectPhases(frames) {
         landing
 
     };
-
-    console.log("========== Phase ==========");
-    console.log("踏切:", takeOff);
-    console.log("着手:", handContact);
-    console.log("最高点:", highestHip);
-    console.log("着地:", landing);
-
-    return phaseResult;
-
-}
+console.log("========== Phase ==========");
+console.log("踏切:", takeOff);
+console.log("着手:", handContact);
+console.log("最高点:", highestHip);
+console.log("着地:", landing);
 
 // ----------------------------
-// 取得
+// 画面表示
 // ----------------------------
-
-function getPhaseResult() {
-
 const phaseInfo = document.getElementById("phaseInfo");
 
 if (phaseInfo) {
@@ -177,6 +169,15 @@ if (phaseInfo) {
     `;
 
 }
+
+return phaseResult;
+
+// ----------------------------
+// 取得
+// ----------------------------
+
+function getPhaseResult() {
+
     return phaseResult;
 
 }
