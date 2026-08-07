@@ -145,3 +145,12 @@ function updateTotal() {
     totalScore.textContent = (d + e).toFixed(1);
 
 }
+// ----------------------------
+// 動画終了検知
+// ----------------------------
+
+video.addEventListener("ended", () => {
+
+    finishAnalysis();
+
+});
