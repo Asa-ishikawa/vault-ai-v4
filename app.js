@@ -1,6 +1,6 @@
 // ===============================
-// 跳び箱AI採点システム Ver5.3
-// app.js
+// 跳び箱AI採点システム Ver5.3.2
+// app.js（前半）
 // ===============================
 
 const videoFile = document.getElementById("videoFile");
@@ -65,8 +65,8 @@ detectBtn.addEventListener("click", () => {
 
     }
 
-    if (window.clearPoseFrames) clearPoseFrames();
-    if (window.clearPhase) clearPhase();
+    clearPoseFrames();
+    clearPhase();
 
     dScore.textContent = "-";
     totalScore.textContent = "-";
@@ -82,7 +82,6 @@ detectBtn.addEventListener("click", () => {
     });
 
 });
-
 // ----------------------------
 // AI終了
 // ----------------------------
@@ -91,7 +90,21 @@ function finishAnalysis() {
 
     const frames = getPoseFrames();
 
+    if (!frames || frames.length < 20) {
+
+        status.textContent = "骨格データが不足しています";
+        return;
+
+    }
+
     const phase = detectPhases(frames);
+
+    if (!phase) {
+
+        status.textContent = "フェーズ検出に失敗しました";
+        return;
+
+    }
 
     const result = calculateDScore(frames, phase);
 
@@ -122,7 +135,7 @@ function updateTotal() {
     const d = Number(dScore.textContent);
     const e = Number(eScore.value);
 
-    if (isNaN(d)) {
+    if (isNaN(d) || isNaN(e)) {
 
         totalScore.textContent = "-";
         return;

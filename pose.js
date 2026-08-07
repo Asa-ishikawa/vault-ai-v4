@@ -1,20 +1,19 @@
 // ===============================
-// 跳び箱AI採点システム Ver5.3
-// pose.js
-// 骨格取得専用
+// 跳び箱AI採点システム Ver5.3.2
+// pose.js（完成版）
 // ===============================
 
 let pose = null;
 
-// 全フレーム保存
 let poseFrames = [];
-
 let frameCount = 0;
 
 // ----------------------------
 // Pose開始
 // ----------------------------
 async function startPose(video, canvas, ctx) {
+
+    clearPoseFrames();
 
     if (!pose) {
 
@@ -30,20 +29,18 @@ async function startPose(video, canvas, ctx) {
             modelComplexity: 1,
             smoothLandmarks: true,
             enableSegmentation: false,
-            minDetectionConfidence: 0.5,
-            minTrackingConfidence: 0.5
+            minDetectionConfidence: 0.6,
+            minTrackingConfidence: 0.6
 
         });
 
-        pose.onResults((results) => {
+        pose.onResults(results => {
 
             onResults(results, video, canvas, ctx);
 
         });
 
     }
-
-    frameCount = 0;
 
     async function analyze() {
 
@@ -69,7 +66,7 @@ async function startPose(video, canvas, ctx) {
 }
 
 // ----------------------------
-// フレーム取得
+// 骨格取得
 // ----------------------------
 function onResults(results, video, canvas, ctx) {
 
@@ -108,7 +105,7 @@ function onResults(results, video, canvas, ctx) {
 
     poseFrames.push({
 
-        frame: frameCount,
+        frame: frameCount++,
 
         time: video.currentTime,
 
@@ -116,12 +113,10 @@ function onResults(results, video, canvas, ctx) {
 
     });
 
-    frameCount++;
-
 }
 
 // ----------------------------
-// 全フレーム取得
+// 取得
 // ----------------------------
 function getPoseFrames() {
 
@@ -135,19 +130,7 @@ function getPoseFrames() {
 function clearPoseFrames() {
 
     poseFrames = [];
-
     frameCount = 0;
-
-}
-
-// ----------------------------
-// デバッグ
-// ----------------------------
-function printPoseFrames() {
-
-    console.log("取得フレーム数:", poseFrames.length);
-
-    console.log(poseFrames);
 
 }
 
@@ -155,9 +138,5 @@ function printPoseFrames() {
 // 公開
 // ----------------------------
 window.startPose = startPose;
-
 window.getPoseFrames = getPoseFrames;
-
 window.clearPoseFrames = clearPoseFrames;
-
-window.printPoseFrames = printPoseFrames;
