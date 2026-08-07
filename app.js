@@ -1,6 +1,6 @@
 // ===============================
 // 跳び箱AI採点システム Ver5.3.2
-// app.js（前半）
+// app.js 完成版
 // ===============================
 
 const videoFile = document.getElementById("videoFile");
@@ -9,12 +9,13 @@ const canvas = document.getElementById("outputCanvas");
 const ctx = canvas.getContext("2d");
 
 const detectBtn = document.getElementById("detectBtn");
-
 const status = document.getElementById("status");
 
 const dScore = document.getElementById("dScore");
 const eScore = document.getElementById("eScore");
 const totalScore = document.getElementById("totalScore");
+
+let analyzing = false;
 
 // ----------------------------
 // 動画選択
@@ -56,7 +57,7 @@ video.addEventListener("loadeddata", () => {
 // AI開始
 // ----------------------------
 
-detectBtn.addEventListener("click", () => {
+detectBtn.addEventListener("click", async () => {
 
     if (!video.src) {
 
@@ -65,50 +66,123 @@ detectBtn.addEventListener("click", () => {
 
     }
 
+    if (analyzing) return;
+
+    analyzing = true;
+
     clearPoseFrames();
     clearPhase();
 
     dScore.textContent = "-";
     totalScore.textContent = "-";
 
+    const phaseInfo =
+        document.getElementById("phaseInfo");
+
+    if (phaseInfo) {
+
+        phaseInfo.textContent = "解析中...";
+
+    }
+
     status.textContent = "AI解析中...";
 
     video.currentTime = 0;
 
-    video.play().then(() => {
+    try {
+
+        await video.play();
 
         startPose(video, canvas, ctx);
 
-    });
+    }
+
+    catch (error) {
+
+        console.error(error);
+
+        analyzing = false;
+
+        status.textContent =
+            "動画を再生できません";
+
+    }
 
 });
+
+// ----------------------------
+// 動画終了
+// ----------------------------
+
+video.addEventListener("ended", () => {
+
+    if (!analyzing) return;
+
+    finishAnalysis();
+
+});
+
 // ----------------------------
 // AI終了
 // ----------------------------
 
 function finishAnalysis() {
 
+    if (!analyzing) return;
+
+    analyzing = false;
+
     const frames = getPoseFrames();
+
+    console.log("取得フレーム数:", frames.length);
 
     if (!frames || frames.length < 20) {
 
-        status.textContent = "骨格データが不足しています";
+        status.textContent =
+            "骨格データが不足しています";
+
         return;
 
     }
 
-    const phase = detectPhases(frames);
+    // ----------------------------
+    // フェーズ検出
+    // ----------------------------
+
+    const phase =
+        detectPhases(frames);
 
     if (!phase) {
 
-        status.textContent = "フェーズ検出に失敗しました";
+        status.textContent =
+            "フェーズ検出に失敗しました";
+
         return;
 
     }
 
-    const result = calculateDScore(frames, phase);
+    // ----------------------------
+    // Dスコア
+    // ----------------------------
 
-    dScore.textContent = result.score.toFixed(1);
+    const result =
+        calculateDScore(frames, phase);
+
+    if (!result) {
+
+        status.textContent =
+            "採点に失敗しました";
+
+        return;
+
+    }
+
+    dScore.textContent =
+        Number(result.score).toFixed(1);
+
+    // ----------------------------
+    // フィードバック
+    // ----------------------------
 
     if (typeof showFeedback === "function") {
 
@@ -116,41 +190,56 @@ function finishAnalysis() {
 
     }
 
+    // ----------------------------
+    // 合計
+    // ----------------------------
+
     updateTotal();
 
-    status.textContent = "解析完了";
+    status.textContent =
+        "解析完了";
 
 }
-
-window.finishAnalysis = finishAnalysis;
 
 // ----------------------------
 // 合計点
 // ----------------------------
 
-eScore.addEventListener("input", updateTotal);
+eScore.addEventListener(
+    "input",
+    updateTotal
+);
 
 function updateTotal() {
 
-    const d = Number(dScore.textContent);
-    const e = Number(eScore.value);
+    const d =
+        Number(dScore.textContent);
 
-    if (isNaN(d) || isNaN(e)) {
+    const e =
+        Number(eScore.value);
+
+    if (
+        !Number.isFinite(d) ||
+        !Number.isFinite(e)
+    ) {
 
         totalScore.textContent = "-";
+
         return;
 
     }
 
-    totalScore.textContent = (d + e).toFixed(1);
+    totalScore.textContent =
+        (d + e).toFixed(1);
 
 }
+
 // ----------------------------
-// 動画終了検知
+// 公開
 // ----------------------------
 
-video.addEventListener("ended", () => {
+window.finishAnalysis =
+    finishAnalysis;
 
-    finishAnalysis();
-
-});
+window.updateTotal =
+    updateTotal;
