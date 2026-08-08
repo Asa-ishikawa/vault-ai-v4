@@ -1,6 +1,7 @@
 // ===============================
-// 跳び箱AI採点システム Ver5.3.2
-// phase.js（前半）
+// 跳び箱AI採点システム Ver5.4
+// phase.js
+// 動作フェーズ検出・安定化版
 // ===============================
 
 let phaseResult = null;
@@ -8,71 +9,74 @@ let phaseResult = null;
 // ----------------------------
 // フェーズ検出
 // ----------------------------
+
 function detectPhases(frames) {
 
     if (!frames || frames.length < 20) {
         return null;
     }
 
+    // ----------------------------
+    // 骨格データを平滑化
+    // ----------------------------
+
+    const data =
+        prepareFrames(frames);
+
+    if (!data || data.length < 20) {
+        return null;
+    }
+
     let takeOff = 0;
     let handContact = 0;
     let highestHip = 0;
-    let landing = frames.length - 1;
+    let landing = data.length - 1;
 
     // ----------------------------
     // ① 腰の最高点
     // ----------------------------
 
-    let minHipY = 999;
+    let minHipY = Infinity;
 
-    frames.forEach((frame, index) => {
+    for (let i = 0; i < data.length; i++) {
 
-        const hip = getHipCenter(frame);
+        const hip =
+            getHipCenter(data[i]);
 
-        if (!hip) return;
+        if (!hip) continue;
 
         if (hip.y < minHipY) {
 
             minHipY = hip.y;
-            highestHip = index;
+            highestHip = i;
 
         }
 
-    });
+    }
 
     // ----------------------------
-    // ② 着手検出
-    // 手首速度＋前方位置を利用
+    // ② 着手位置
+    // 手首の前方移動が最大になる付近
     // ----------------------------
 
-    let maxScore = -999;
+    let maxHandX = -Infinity;
 
-    for (let i = 1; i < frames.length; i++) {
+    for (let i = 0; i < data.length; i++) {
 
-        const leftNow = getPoint(frames[i], 15);
-        const rightNow = getPoint(frames[i], 16);
+        const left =
+            getPoint(data[i], 15);
 
-        const leftPrev = getPoint(frames[i - 1], 15);
-        const rightPrev = getPoint(frames[i - 1], 16);
+        const right =
+            getPoint(data[i], 16);
 
-        if (!leftNow || !rightNow) continue;
-        if (!leftPrev || !rightPrev) continue;
+        if (!left || !right) continue;
 
         const handX =
-            (leftNow.x + rightNow.x) / 2;
+            (left.x + right.x) / 2;
 
-        const speed =
+        if (handX > maxHandX) {
 
-            Math.abs(leftNow.x - leftPrev.x) +
-            Math.abs(rightNow.x - rightPrev.x);
-
-        const score =
-
-            handX + speed * 3;
-
-        if (score > maxScore) {
-
-            maxScore = score;
+            maxHandX = handX;
             handContact = i;
 
         }
@@ -81,112 +85,177 @@ function detectPhases(frames) {
 
     // ----------------------------
     // ③ 踏切
+    // 足首の上昇開始を検出
     // ----------------------------
 
-    let lastFootY = null;
+    let bestTakeOff = 0;
+    let bestRise = 0;
 
-    for (let i = 1; i < handContact; i++) {
+    for (
+        let i = 3;
+        i < handContact;
+        i++
+    ) {
 
-        const left = getPoint(frames[i], 27);
-        const right = getPoint(frames[i], 28);
+        const prev =
+            getPoint(data[i - 3], 27);
 
-        if (!left || !right) continue;
+        const current =
+            getPoint(data[i], 27);
 
-        const footY =
-            (left.y + right.y) / 2;
+        if (!prev || !current) continue;
 
-        if (lastFootY !== null) {
+        const rise =
+            prev.y - current.y;
 
-            if ((lastFootY - footY) > 0.012) {
+        if (rise > bestRise) {
 
-                takeOff = i;
-                break;
-
-            }
+            bestRise = rise;
+            bestTakeOff = i;
 
         }
 
-        lastFootY = footY;
-
     }
+
+    takeOff = bestTakeOff;
 
     if (takeOff === 0) {
 
         takeOff =
-            Math.max(0, handContact - 8);
+            Math.max(
+                0,
+                handContact - 10
+            );
 
     }
-        // ----------------------------
+
+    // ----------------------------
     // ④ 着地
+    // 最高点以降で足首の動きが
+    // 小さくなった場所を探す
     // ----------------------------
 
-    let lastLandingY = null;
+    for (
+        let i = highestHip + 3;
+        i < data.length - 2;
+        i++
+    ) {
 
-    for (let i = highestHip; i < frames.length; i++) {
+        const a =
+            getPoint(data[i - 2], 27);
 
-        const left = getPoint(frames[i], 27);
-        const right = getPoint(frames[i], 28);
+        const b =
+            getPoint(data[i], 27);
 
-        if (!left || !right) continue;
+        const c =
+            getPoint(data[i + 2], 27);
 
-        const footY =
-            (left.y + right.y) / 2;
+        if (!a || !b || !c) continue;
 
-        if (lastLandingY !== null) {
+        const movement =
+            Math.abs(a.y - b.y) +
+            Math.abs(b.y - c.y);
 
-            if (Math.abs(footY - lastLandingY) < 0.003) {
+        if (movement < 0.012) {
 
-                landing = i;
-                break;
-
-            }
+            landing = i;
+            break;
 
         }
 
-        lastLandingY = footY;
-
     }
 
     // ----------------------------
-    // 結果保存
+    // フェーズの順番を保証
+    // ----------------------------
+
+    takeOff =
+        Math.max(
+            0,
+            Math.min(
+                takeOff,
+                data.length - 1
+            )
+        );
+
+    handContact =
+        Math.max(
+            takeOff + 1,
+            Math.min(
+                handContact,
+                data.length - 1
+            )
+        );
+
+    highestHip =
+        Math.max(
+            handContact,
+            Math.min(
+                highestHip,
+                data.length - 1
+            )
+        );
+
+    landing =
+        Math.max(
+            highestHip + 1,
+            Math.min(
+                landing,
+                data.length - 1
+            )
+        );
+
+    // ----------------------------
+    // 元データのフレーム番号へ変換
     // ----------------------------
 
     phaseResult = {
 
-        takeOff,
-        handContact,
-        highestHip,
-        landing
+        takeOff:
+            data[takeOff].frame,
+
+        handContact:
+            data[handContact].frame,
+
+        highestHip:
+            data[highestHip].frame,
+
+        landing:
+            data[landing].frame
 
     };
 
-    // ----------------------------
-    // 画面表示
-    // ----------------------------
+    console.log(
+        "========== Ver5.4 Phase =========="
+    );
 
-    const phaseInfo =
-        document.getElementById("phaseInfo");
+    console.log(
+        "踏切:",
+        phaseResult.takeOff
+    );
 
-    if (phaseInfo) {
+    console.log(
+        "着手:",
+        phaseResult.handContact
+    );
 
-        phaseInfo.innerHTML = `
-            <strong>踏切：</strong> ${takeOff}<br>
-            <strong>着手：</strong> ${handContact}<br>
-            <strong>最高点：</strong> ${highestHip}<br>
-            <strong>着地：</strong> ${landing}
-        `;
+    console.log(
+        "最高点:",
+        phaseResult.highestHip
+    );
 
-    }
-
-    console.log("========== Phase ==========");
-    console.log(phaseResult);
+    console.log(
+        "着地:",
+        phaseResult.landing
+    );
 
     return phaseResult;
 
 }
 
+
 // ----------------------------
-// 取得
+// フェーズ取得
 // ----------------------------
 
 function getPhaseResult() {
@@ -194,6 +263,7 @@ function getPhaseResult() {
     return phaseResult;
 
 }
+
 
 // ----------------------------
 // リセット
@@ -204,20 +274,33 @@ function clearPhase() {
     phaseResult = null;
 
     const phaseInfo =
-        document.getElementById("phaseInfo");
+        document.getElementById(
+            "phaseInfo"
+        );
 
     if (phaseInfo) {
 
-        phaseInfo.innerHTML = "未解析";
+        phaseInfo.innerHTML =
+            "未解析";
 
     }
 
 }
 
+
 // ----------------------------
 // 公開
 // ----------------------------
 
-window.detectPhases = detectPhases;
-window.getPhaseResult = getPhaseResult;
-window.clearPhase = clearPhase;
+window.detectPhases =
+    detectPhases;
+
+window.getPhaseResult =
+    getPhaseResult;
+
+window.clearPhase =
+    clearPhase;
+
+console.log(
+    "phase.js Ver5.4 読み込み成功"
+);
