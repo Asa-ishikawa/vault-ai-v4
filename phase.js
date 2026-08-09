@@ -1,216 +1,285 @@
 // ===============================
-// 跳び箱AI採点システム Ver5.5
+// 跳び箱AI採点システム Ver5.3.3
 // phase.js
-// 動作フェーズ検出・安定化版
+// 動作フェーズ検出
+// 着地判定 改良版
 // ===============================
 
 let phaseResult = null;
 
-
-// ===============================
+// ----------------------------
 // フェーズ検出
-// ===============================
+// ----------------------------
 
 function detectPhases(frames) {
 
-    if (
-        !Array.isArray(frames) ||
-        frames.length < 20
-    ) {
-        return null;
-    }
-
-    const data =
-        prepareFrames(frames);
-
-    if (
-        !data ||
-        data.length < 20
-    ) {
+    if (!frames || frames.length < 20) {
         return null;
     }
 
     let takeOff = 0;
     let handContact = 0;
     let highestHip = 0;
-    let landing = data.length - 1;
+    let landing = frames.length - 1;
 
+    // =====================================
+    // ① 腰の最高点
+    // =====================================
 
-    // ============================
-    // ① 腰の高さ
-    // ============================
+    let minHipY = 999;
 
-    const hipY = [];
+    frames.forEach((frame, index) => {
 
-    for (
-        let i = 0;
-        i < data.length;
-        i++
-    ) {
+        const hip = getHipCenter(frame);
 
-        const hip =
-            getHipCenter(data[i]);
+        if (!hip) return;
 
-        if (!hip) {
+        if (hip.y < minHipY) {
 
-            hipY.push(NaN);
-
-            continue;
+            minHipY = hip.y;
+            highestHip = index;
 
         }
 
-        hipY.push(hip.y);
+    });
 
-    }
-
-    const smoothHipY =
-        movingAverage(
-            hipY,
-            7
-        );
-
-
-    let minHipY = Infinity;
-
-    for (
-        let i = 0;
-        i < smoothHipY.length;
-        i++
-    ) {
-
-        if (
-            !Number.isFinite(
-                smoothHipY[i]
-            )
-        ) {
-            continue;
-        }
-
-        if (
-            smoothHipY[i] < minHipY
-        ) {
-
-            minHipY =
-                smoothHipY[i];
-
-            highestHip = i;
-
-        }
-
-    }
-
-
-    // ============================
+    // =====================================
     // ② 着手
-    // 手首の前方位置
-    // ============================
+    // 手首が最も前に出た瞬間
+    // =====================================
 
-    const handX = [];
+    let maxHandX = -999;
 
-    for (
-        let i = 0;
-        i < data.length;
-        i++
-    ) {
+    frames.forEach((frame, index) => {
 
-        const left =
-            getPoint(data[i], 15);
+        const left = getPoint(frame, 15);
+        const right = getPoint(frame, 16);
 
-        const right =
-            getPoint(data[i], 16);
+        if (!left || !right) return;
 
-        if (!left || !right) {
+        const handX = (left.x + right.x) / 2;
 
-            handX.push(NaN);
+        if (handX > maxHandX) {
 
-            continue;
+            maxHandX = handX;
+            handContact = index;
 
         }
 
-        handX.push(
-            (
-                left.x +
-                right.x
-            ) / 2
-        );
+    });
 
-    }
+    // =====================================
+    // ③ 踏切
+    // 両足が上昇し始める瞬間
+    // =====================================
 
-    const smoothHandX =
-        movingAverage(
-            handX,
-            7
-        );
+    let lastFootY = null;
 
+    for (let i = 1; i < handContact; i++) {
 
-    let maxHandX = -Infinity;
+        const leftAnkle = getPoint(frames[i], 27);
+        const rightAnkle = getPoint(frames[i], 28);
 
-    for (
-        let i = 0;
-        i < smoothHandX.length;
-        i++
-    ) {
+        if (!leftAnkle || !rightAnkle) continue;
 
-        if (
-            !Number.isFinite(
-                smoothHandX[i]
-            )
-        ) {
-            continue;
-        }
+        const footY =
+            (leftAnkle.y + rightAnkle.y) / 2;
 
-        // 踏切より後、
-        // 最高点より前を優先
-        if (
-            i < highestHip
-        ) {
+        if (lastFootY !== null) {
 
-            if (
-                smoothHandX[i] >
-                maxHandX
-            ) {
+            // 足首が明確に上昇した瞬間
+            if ((lastFootY - footY) > 0.012) {
 
-                maxHandX =
-                    smoothHandX[i];
-
-                handContact = i;
+                takeOff = i;
+                break;
 
             }
 
         }
 
+        lastFootY = footY;
+
     }
 
-
     // 見つからなかった場合
+    if (takeOff === 0) {
 
-    if (
-        handContact === 0
+        takeOff =
+            Math.max(0, handContact - 10);
+
+    }
+
+    // =====================================
+    // ④ 踏切時の「床の高さ」を記録
+    //
+    // 着地判定では、
+    // 「足首が安定した」だけではなく
+    // 「踏切時の床の高さまで足が戻った」
+    // ことを確認する。
+    // =====================================
+
+    let takeOffFootY = null;
+
+    const takeOffStart =
+        Math.max(0, takeOff - 3);
+
+    const takeOffEnd =
+        Math.min(frames.length - 1, takeOff + 2);
+
+    let takeOffFootValues = [];
+
+    for (
+        let i = takeOffStart;
+        i <= takeOffEnd;
+        i++
     ) {
 
+        const leftAnkle =
+            getPoint(frames[i], 27);
+
+        const rightAnkle =
+            getPoint(frames[i], 28);
+
+        if (!leftAnkle || !rightAnkle) {
+            continue;
+        }
+
+        const footY =
+            (leftAnkle.y + rightAnkle.y) / 2;
+
+        takeOffFootValues.push(footY);
+
+    }
+
+    if (takeOffFootValues.length > 0) {
+
+        takeOffFootY =
+            takeOffFootValues.reduce(
+                (sum, value) => sum + value,
+                0
+            ) / takeOffFootValues.length;
+
+    }
+
+    // =====================================
+    // ⑤ 着地判定 改良版
+    //
+    // 条件
+    //
+    // ① 最高点を過ぎている
+    // ② 足首が下降している
+    // ③ 踏切時の床の高さ付近まで戻っている
+    // ④ 両足の高さが安定している
+    //
+    // これにより
+    //
+    // 「跳び箱の上に座って停止」
+    //
+    // を着地と誤判定しにくくする。
+    // =====================================
+
+    let landingFound = false;
+
+    if (takeOffFootY !== null) {
+
         for (
-            let i = 0;
-            i < smoothHandX.length;
+            let i = highestHip + 3;
+            i < frames.length - 3;
             i++
         ) {
 
+            const currentLeft =
+                getPoint(frames[i], 27);
+
+            const currentRight =
+                getPoint(frames[i], 28);
+
+            const nextLeft =
+                getPoint(frames[i + 1], 27);
+
+            const nextRight =
+                getPoint(frames[i + 1], 28);
+
+            const next2Left =
+                getPoint(frames[i + 2], 27);
+
+            const next2Right =
+                getPoint(frames[i + 2], 28);
+
             if (
-                !Number.isFinite(
-                    smoothHandX[i]
-                )
+                !currentLeft ||
+                !currentRight ||
+                !nextLeft ||
+                !nextRight ||
+                !next2Left ||
+                !next2Right
             ) {
                 continue;
             }
 
+            const footY =
+                (currentLeft.y + currentRight.y) / 2;
+
+            const nextFootY =
+                (nextLeft.y + nextRight.y) / 2;
+
+            const next2FootY =
+                (next2Left.y + next2Right.y) / 2;
+
+            // ---------------------------------
+            // 条件A
+            // 足が床の高さ付近まで戻っている
+            // ---------------------------------
+
+            const floorDifference =
+                Math.abs(
+                    footY - takeOffFootY
+                );
+
+            const nearFloor =
+                floorDifference < 0.08;
+
+            // ---------------------------------
+            // 条件B
+            // 足が下降した後に安定している
+            // ---------------------------------
+
+            const descending =
+                footY > nextFootY - 0.002;
+
+            const stable =
+                Math.abs(nextFootY - footY) < 0.012 &&
+                Math.abs(next2FootY - nextFootY) < 0.012;
+
+            // ---------------------------------
+            // 条件C
+            // 両足の高さが大きく離れていない
+            // ---------------------------------
+
+            const footDifference =
+                Math.abs(
+                    currentLeft.y -
+                    currentRight.y
+                );
+
+            const feetTogether =
+                footDifference < 0.10;
+
+            // ---------------------------------
+            // 総合判定
+            // ---------------------------------
+
             if (
-                smoothHandX[i] >
-                maxHandX
+                nearFloor &&
+                descending &&
+                stable &&
+                feetTogether
             ) {
 
-                maxHandX =
-                    smoothHandX[i];
+                landing = i;
+                landingFound = true;
 
-                handContact = i;
+                break;
 
             }
 
@@ -218,257 +287,78 @@ function detectPhases(frames) {
 
     }
 
+    // =====================================
+    // 着地が見つからなかった場合
+    //
+    // 「動画終了＝着地」としない
+    // =====================================
 
-    // ============================
-    // ③ 踏切
-    // 足首の上昇開始
-    // ============================
+    if (!landingFound) {
 
-    const ankleY = [];
-
-    for (
-        let i = 0;
-        i < data.length;
-        i++
-    ) {
-
-        const left =
-            getPoint(data[i], 27);
-
-        const right =
-            getPoint(data[i], 28);
-
-        if (!left || !right) {
-
-            ankleY.push(NaN);
-
-            continue;
-
-        }
-
-        ankleY.push(
-            (
-                left.y +
-                right.y
-            ) / 2
-        );
+        landing = -1;
 
     }
 
-    const smoothAnkleY =
-        movingAverage(
-            ankleY,
-            5
-        );
-
-
-    let bestRise = 0;
-    let bestTakeOff = 0;
-
-
-    for (
-        let i = 3;
-        i < handContact;
-        i++
-    ) {
-
-        if (
-            !Number.isFinite(
-                smoothAnkleY[i - 3]
-            ) ||
-            !Number.isFinite(
-                smoothAnkleY[i]
-            )
-        ) {
-            continue;
-        }
-
-        const rise =
-            smoothAnkleY[i - 3] -
-            smoothAnkleY[i];
-
-        if (
-            rise > bestRise
-        ) {
-
-            bestRise = rise;
-            bestTakeOff = i;
-
-        }
-
-    }
-
-
-    if (
-        bestTakeOff > 0
-    ) {
-
-        takeOff =
-            bestTakeOff;
-
-    }
-
-    else {
-
-        takeOff =
-            Math.max(
-                0,
-                handContact - 10
-            );
-
-    }
-
-
-    // ============================
-    // ④ 着地
-    // 足首が安定する区間
-    // ============================
-
-    const landingStart =
-        Math.max(
-            highestHip + 5,
-            handContact + 5
-        );
-
-
-    for (
-        let i = landingStart;
-        i < data.length - 3;
-        i++
-    ) {
-
-        if (
-            !Number.isFinite(
-                smoothAnkleY[i - 2]
-            ) ||
-            !Number.isFinite(
-                smoothAnkleY[i]
-            ) ||
-            !Number.isFinite(
-                smoothAnkleY[i + 2]
-            )
-        ) {
-            continue;
-        }
-
-        const movement =
-            Math.abs(
-                smoothAnkleY[i - 2] -
-                smoothAnkleY[i]
-            ) +
-            Math.abs(
-                smoothAnkleY[i] -
-                smoothAnkleY[i + 2]
-            );
-
-
-        if (
-            movement < 0.012
-        ) {
-
-            landing = i;
-
-            break;
-
-        }
-
-    }
-
-
-    // ============================
-    // フェーズ順序を保証
-    // ============================
-
-    takeOff =
-        clamp(
-            takeOff,
-            0,
-            data.length - 1
-        );
-
-
-    handContact =
-        clamp(
-            handContact,
-            takeOff + 1,
-            data.length - 1
-        );
-
-
-    highestHip =
-        clamp(
-            highestHip,
-            handContact,
-            data.length - 1
-        );
-
-
-    landing =
-        clamp(
-            landing,
-            highestHip + 1,
-            data.length - 1
-        );
-
-
-    // ============================
-    // 元フレーム番号へ変換
-    // ============================
+    // =====================================
+    // 保存
+    // =====================================
 
     phaseResult = {
 
-        takeOff:
-            data[takeOff].frame,
-
-        handContact:
-            data[handContact].frame,
-
-        highestHip:
-            data[highestHip].frame,
-
-        landing:
-            data[landing].frame
+        takeOff,
+        handContact,
+        highestHip,
+        landing
 
     };
 
-
-    // ============================
-    // デバッグ
-    // ============================
+    // =====================================
+    // デバッグ表示
+    // =====================================
 
     console.log(
-        "========== Ver5.5 Phase =========="
+        "========== Phase Ver5.3.3 =========="
     );
 
     console.log(
         "踏切:",
-        phaseResult.takeOff
+        takeOff
     );
 
     console.log(
         "着手:",
-        phaseResult.handContact
+        handContact
     );
 
     console.log(
         "最高点:",
-        phaseResult.highestHip
+        highestHip
+    );
+
+    console.log(
+        "踏切時の床高さ:",
+        takeOffFootY
     );
 
     console.log(
         "着地:",
-        phaseResult.landing
+        landing
     );
 
+    console.log(
+        "着地判定:",
+        landingFound
+            ? "着地あり"
+            : "着地なし"
+    );
 
     return phaseResult;
 
 }
 
-
-// ===============================
-// フェーズ取得
-// ===============================
+// ----------------------------
+// フェーズ結果取得
+// ----------------------------
 
 function getPhaseResult() {
 
@@ -476,19 +366,56 @@ function getPhaseResult() {
 
 }
 
+// ----------------------------
+// 画面表示
+// ----------------------------
 
-// ===============================
+function updatePhaseDisplay() {
+
+    const phaseInfo =
+        document.getElementById("phaseInfo");
+
+    if (!phaseInfo) return;
+
+    if (!phaseResult) {
+
+        phaseInfo.textContent =
+            "未解析";
+
+        return;
+
+    }
+
+    phaseInfo.innerHTML = `
+        <strong>踏切：</strong>
+        ${phaseResult.takeOff}<br>
+
+        <strong>着手：</strong>
+        ${phaseResult.handContact}<br>
+
+        <strong>最高点：</strong>
+        ${phaseResult.highestHip}<br>
+
+        <strong>着地：</strong>
+        ${
+            phaseResult.landing >= 0
+                ? phaseResult.landing
+                : "着地なし"
+        }
+    `;
+
+}
+
+// ----------------------------
 // リセット
-// ===============================
+// ----------------------------
 
 function clearPhase() {
 
     phaseResult = null;
 
     const phaseInfo =
-        document.getElementById(
-            "phaseInfo"
-        );
+        document.getElementById("phaseInfo");
 
     if (phaseInfo) {
 
@@ -499,10 +426,9 @@ function clearPhase() {
 
 }
 
-
-// ===============================
+// ----------------------------
 // 公開
-// ===============================
+// ----------------------------
 
 window.detectPhases =
     detectPhases;
@@ -510,10 +436,8 @@ window.detectPhases =
 window.getPhaseResult =
     getPhaseResult;
 
+window.updatePhaseDisplay =
+    updatePhaseDisplay;
+
 window.clearPhase =
     clearPhase;
-
-
-console.log(
-    "phase.js Ver5.5 読み込み成功"
-);
