@@ -1,29 +1,32 @@
 // ===============================
-// 跳び箱AI採点システム Ver5.4
+// 跳び箱AI採点システム Ver5.5
 // phase.js
 // 動作フェーズ検出・安定化版
 // ===============================
 
 let phaseResult = null;
 
-// ----------------------------
+
+// ===============================
 // フェーズ検出
-// ----------------------------
+// ===============================
 
 function detectPhases(frames) {
 
-    if (!frames || frames.length < 20) {
+    if (
+        !Array.isArray(frames) ||
+        frames.length < 20
+    ) {
         return null;
     }
-
-    // ----------------------------
-    // 骨格データを平滑化
-    // ----------------------------
 
     const data =
         prepareFrames(frames);
 
-    if (!data || data.length < 20) {
+    if (
+        !data ||
+        data.length < 20
+    ) {
         return null;
     }
 
@@ -32,36 +35,83 @@ function detectPhases(frames) {
     let highestHip = 0;
     let landing = data.length - 1;
 
-    // ----------------------------
-    // ① 腰の最高点
-    // ----------------------------
 
-    let minHipY = Infinity;
+    // ============================
+    // ① 腰の高さ
+    // ============================
 
-    for (let i = 0; i < data.length; i++) {
+    const hipY = [];
+
+    for (
+        let i = 0;
+        i < data.length;
+        i++
+    ) {
 
         const hip =
             getHipCenter(data[i]);
 
-        if (!hip) continue;
+        if (!hip) {
 
-        if (hip.y < minHipY) {
+            hipY.push(NaN);
 
-            minHipY = hip.y;
+            continue;
+
+        }
+
+        hipY.push(hip.y);
+
+    }
+
+    const smoothHipY =
+        movingAverage(
+            hipY,
+            7
+        );
+
+
+    let minHipY = Infinity;
+
+    for (
+        let i = 0;
+        i < smoothHipY.length;
+        i++
+    ) {
+
+        if (
+            !Number.isFinite(
+                smoothHipY[i]
+            )
+        ) {
+            continue;
+        }
+
+        if (
+            smoothHipY[i] < minHipY
+        ) {
+
+            minHipY =
+                smoothHipY[i];
+
             highestHip = i;
 
         }
 
     }
 
-    // ----------------------------
-    // ② 着手位置
-    // 手首の前方移動が最大になる付近
-    // ----------------------------
 
-    let maxHandX = -Infinity;
+    // ============================
+    // ② 着手
+    // 手首の前方位置
+    // ============================
 
-    for (let i = 0; i < data.length; i++) {
+    const handX = [];
+
+    for (
+        let i = 0;
+        i < data.length;
+        i++
+    ) {
 
         const left =
             getPoint(data[i], 15);
@@ -69,27 +119,152 @@ function detectPhases(frames) {
         const right =
             getPoint(data[i], 16);
 
-        if (!left || !right) continue;
+        if (!left || !right) {
 
-        const handX =
-            (left.x + right.x) / 2;
+            handX.push(NaN);
 
-        if (handX > maxHandX) {
+            continue;
 
-            maxHandX = handX;
-            handContact = i;
+        }
+
+        handX.push(
+            (
+                left.x +
+                right.x
+            ) / 2
+        );
+
+    }
+
+    const smoothHandX =
+        movingAverage(
+            handX,
+            7
+        );
+
+
+    let maxHandX = -Infinity;
+
+    for (
+        let i = 0;
+        i < smoothHandX.length;
+        i++
+    ) {
+
+        if (
+            !Number.isFinite(
+                smoothHandX[i]
+            )
+        ) {
+            continue;
+        }
+
+        // 踏切より後、
+        // 最高点より前を優先
+        if (
+            i < highestHip
+        ) {
+
+            if (
+                smoothHandX[i] >
+                maxHandX
+            ) {
+
+                maxHandX =
+                    smoothHandX[i];
+
+                handContact = i;
+
+            }
 
         }
 
     }
 
-    // ----------------------------
-    // ③ 踏切
-    // 足首の上昇開始を検出
-    // ----------------------------
 
-    let bestTakeOff = 0;
+    // 見つからなかった場合
+
+    if (
+        handContact === 0
+    ) {
+
+        for (
+            let i = 0;
+            i < smoothHandX.length;
+            i++
+        ) {
+
+            if (
+                !Number.isFinite(
+                    smoothHandX[i]
+                )
+            ) {
+                continue;
+            }
+
+            if (
+                smoothHandX[i] >
+                maxHandX
+            ) {
+
+                maxHandX =
+                    smoothHandX[i];
+
+                handContact = i;
+
+            }
+
+        }
+
+    }
+
+
+    // ============================
+    // ③ 踏切
+    // 足首の上昇開始
+    // ============================
+
+    const ankleY = [];
+
+    for (
+        let i = 0;
+        i < data.length;
+        i++
+    ) {
+
+        const left =
+            getPoint(data[i], 27);
+
+        const right =
+            getPoint(data[i], 28);
+
+        if (!left || !right) {
+
+            ankleY.push(NaN);
+
+            continue;
+
+        }
+
+        ankleY.push(
+            (
+                left.y +
+                right.y
+            ) / 2
+        );
+
+    }
+
+    const smoothAnkleY =
+        movingAverage(
+            ankleY,
+            5
+        );
+
+
     let bestRise = 0;
+    let bestTakeOff = 0;
+
 
     for (
         let i = 3;
@@ -97,18 +272,24 @@ function detectPhases(frames) {
         i++
     ) {
 
-        const prev =
-            getPoint(data[i - 3], 27);
-
-        const current =
-            getPoint(data[i], 27);
-
-        if (!prev || !current) continue;
+        if (
+            !Number.isFinite(
+                smoothAnkleY[i - 3]
+            ) ||
+            !Number.isFinite(
+                smoothAnkleY[i]
+            )
+        ) {
+            continue;
+        }
 
         const rise =
-            prev.y - current.y;
+            smoothAnkleY[i - 3] -
+            smoothAnkleY[i];
 
-        if (rise > bestRise) {
+        if (
+            rise > bestRise
+        ) {
 
             bestRise = rise;
             bestTakeOff = i;
@@ -117,9 +298,17 @@ function detectPhases(frames) {
 
     }
 
-    takeOff = bestTakeOff;
 
-    if (takeOff === 0) {
+    if (
+        bestTakeOff > 0
+    ) {
+
+        takeOff =
+            bestTakeOff;
+
+    }
+
+    else {
 
         takeOff =
             Math.max(
@@ -129,85 +318,102 @@ function detectPhases(frames) {
 
     }
 
-    // ----------------------------
+
+    // ============================
     // ④ 着地
-    // 最高点以降で足首の動きが
-    // 小さくなった場所を探す
-    // ----------------------------
+    // 足首が安定する区間
+    // ============================
+
+    const landingStart =
+        Math.max(
+            highestHip + 5,
+            handContact + 5
+        );
+
 
     for (
-        let i = highestHip + 3;
-        i < data.length - 2;
+        let i = landingStart;
+        i < data.length - 3;
         i++
     ) {
 
-        const a =
-            getPoint(data[i - 2], 27);
-
-        const b =
-            getPoint(data[i], 27);
-
-        const c =
-            getPoint(data[i + 2], 27);
-
-        if (!a || !b || !c) continue;
+        if (
+            !Number.isFinite(
+                smoothAnkleY[i - 2]
+            ) ||
+            !Number.isFinite(
+                smoothAnkleY[i]
+            ) ||
+            !Number.isFinite(
+                smoothAnkleY[i + 2]
+            )
+        ) {
+            continue;
+        }
 
         const movement =
-            Math.abs(a.y - b.y) +
-            Math.abs(b.y - c.y);
+            Math.abs(
+                smoothAnkleY[i - 2] -
+                smoothAnkleY[i]
+            ) +
+            Math.abs(
+                smoothAnkleY[i] -
+                smoothAnkleY[i + 2]
+            );
 
-        if (movement < 0.012) {
+
+        if (
+            movement < 0.012
+        ) {
 
             landing = i;
+
             break;
 
         }
 
     }
 
-    // ----------------------------
-    // フェーズの順番を保証
-    // ----------------------------
+
+    // ============================
+    // フェーズ順序を保証
+    // ============================
 
     takeOff =
-        Math.max(
+        clamp(
+            takeOff,
             0,
-            Math.min(
-                takeOff,
-                data.length - 1
-            )
+            data.length - 1
         );
+
 
     handContact =
-        Math.max(
+        clamp(
+            handContact,
             takeOff + 1,
-            Math.min(
-                handContact,
-                data.length - 1
-            )
+            data.length - 1
         );
+
 
     highestHip =
-        Math.max(
+        clamp(
+            highestHip,
             handContact,
-            Math.min(
-                highestHip,
-                data.length - 1
-            )
+            data.length - 1
         );
+
 
     landing =
-        Math.max(
+        clamp(
+            landing,
             highestHip + 1,
-            Math.min(
-                landing,
-                data.length - 1
-            )
+            data.length - 1
         );
 
-    // ----------------------------
-    // 元データのフレーム番号へ変換
-    // ----------------------------
+
+    // ============================
+    // 元フレーム番号へ変換
+    // ============================
 
     phaseResult = {
 
@@ -225,8 +431,13 @@ function detectPhases(frames) {
 
     };
 
+
+    // ============================
+    // デバッグ
+    // ============================
+
     console.log(
-        "========== Ver5.4 Phase =========="
+        "========== Ver5.5 Phase =========="
     );
 
     console.log(
@@ -249,14 +460,15 @@ function detectPhases(frames) {
         phaseResult.landing
     );
 
+
     return phaseResult;
 
 }
 
 
-// ----------------------------
+// ===============================
 // フェーズ取得
-// ----------------------------
+// ===============================
 
 function getPhaseResult() {
 
@@ -265,9 +477,9 @@ function getPhaseResult() {
 }
 
 
-// ----------------------------
+// ===============================
 // リセット
-// ----------------------------
+// ===============================
 
 function clearPhase() {
 
@@ -280,7 +492,7 @@ function clearPhase() {
 
     if (phaseInfo) {
 
-        phaseInfo.innerHTML =
+        phaseInfo.textContent =
             "未解析";
 
     }
@@ -288,9 +500,9 @@ function clearPhase() {
 }
 
 
-// ----------------------------
+// ===============================
 // 公開
-// ----------------------------
+// ===============================
 
 window.detectPhases =
     detectPhases;
@@ -301,6 +513,7 @@ window.getPhaseResult =
 window.clearPhase =
     clearPhase;
 
+
 console.log(
-    "phase.js Ver5.4 読み込み成功"
+    "phase.js Ver5.5 読み込み成功"
 );

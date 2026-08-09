@@ -1,7 +1,7 @@
 // ===============================
-// 跳び箱AI採点システム Ver5.4
+// 跳び箱AI採点システム Ver5.5
 // feedback.js
-// 完成版
+// 評価コメント・評価ランク安定化版
 // ===============================
 
 function showFeedback(result) {
@@ -34,8 +34,44 @@ function showFeedback(result) {
     const score =
         Number(result.score);
 
+
     // ============================
-    // 評価項目
+    // 評価ランク
+    // ============================
+
+    let rank = "";
+    let summary = "";
+
+    if (score >= 9) {
+
+        rank = "とてもすばらしい";
+
+        summary =
+            "動きがとても安定しています。今の動きを大切にしましょう。";
+
+    }
+
+    else if (score >= 7) {
+
+        rank = "すばらしい";
+
+        summary =
+            "基本的な動きができています。さらに安定させると、よりよい跳び方になります。";
+
+    }
+
+    else {
+
+        rank = "もうすこし";
+
+        summary =
+            "基本のポイントを一つずつ意識して練習しましょう。";
+
+    }
+
+
+    // ============================
+    // HTML開始
     // ============================
 
     let html = "";
@@ -50,10 +86,19 @@ function showFeedback(result) {
                     Dスコア：${score.toFixed(1)}点
                 </strong>
             </p>
+
+            <p>
+                <strong>
+                    総合評価：${rank}
+                </strong>
+            </p>
+
+            <hr>
     `;
 
+
     // ============================
-    // 膝
+    // 膝の伸び
     // ============================
 
     if (details.knee) {
@@ -79,8 +124,9 @@ function showFeedback(result) {
 
     }
 
+
     // ============================
-    // 腰
+    // 腰の位置
     // ============================
 
     if (details.hip) {
@@ -106,8 +152,9 @@ function showFeedback(result) {
 
     }
 
+
     // ============================
-    // 着手
+    // 着手位置
     // ============================
 
     if (details.hand) {
@@ -133,8 +180,9 @@ function showFeedback(result) {
 
     }
 
+
     // ============================
-    // 踏切
+    // 両足踏切
     // ============================
 
     if (details.takeOff) {
@@ -159,6 +207,7 @@ function showFeedback(result) {
         `;
 
     }
+
 
     // ============================
     // 着地
@@ -187,41 +236,15 @@ function showFeedback(result) {
 
     }
 
+
     // ============================
     // 総合コメント
     // ============================
 
-    let summary = "";
-
-    if (score >= 9) {
-
-        summary =
-            "とてもすばらしい動きです！";
-
-    }
-
-    else if (score >= 7) {
-
-        summary =
-            "すばらしい動きです。さらに安定させましょう。";
-
-    }
-
-    else if (score >= 5) {
-
-        summary =
-            "基本的な動きができています。もうすこし改善できます。";
-
-    }
-
-    else {
-
-        summary =
-            "それぞれのポイントを意識して練習しましょう。";
-
-    }
-
     html += `
+
+            <hr>
+
             <div class="feedback-summary">
 
                 <h4>総合コメント</h4>
@@ -235,14 +258,16 @@ function showFeedback(result) {
         </div>
     `;
 
+
     // ============================
     // 表示
     // ============================
 
     area.innerHTML = html;
 
+
     console.log(
-        "feedback.js：評価コメント表示完了"
+        "feedback.js Ver5.5：表示完了"
     );
 
 }
@@ -255,6 +280,7 @@ function showFeedback(result) {
 window.showFeedback =
     showFeedback;
 
+
 console.log(
-    "feedback.js Ver5.4 読み込み成功"
+    "feedback.js Ver5.5 読み込み成功"
 );
