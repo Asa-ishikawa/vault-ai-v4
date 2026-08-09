@@ -1,28 +1,22 @@
 // ===============================
-// 跳び箱AI採点システム Ver5.7
-// feedback.js 完成版
-// 実測値表示対応
+// 跳び箱AI採点システム Ver5.8
+// feedback.js
+// 実測値表示・安定版
 // ===============================
-
 
 function showFeedback(result) {
 
     const feedback =
-        document.getElementById(
-            "feedback"
-        );
-
+        document.getElementById("feedback");
 
     if (!feedback) {
 
-        console.warn(
+        console.error(
             "feedback要素が見つかりません"
         );
 
         return;
-
     }
-
 
     if (
         !result ||
@@ -30,344 +24,321 @@ function showFeedback(result) {
     ) {
 
         feedback.innerHTML =
-            "<p>評価結果を取得できませんでした。</p>";
+            "評価結果を取得できませんでした。";
 
         return;
-
     }
 
 
-    const details =
-        result.details;
-
-
-    // ==================================================
-    // 安全取得
-    // ==================================================
+    // ===============================
+    // 各評価データ
+    // ===============================
 
     const knee =
-        details.knee || {};
+        result.details.knee || {};
 
     const hip =
-        details.hip || {};
+        result.details.hip || {};
 
     const hand =
-        details.hand || {};
+        result.details.hand || {};
 
     const takeOff =
-        details.takeOff || {};
+        result.details.takeOff || {};
 
     const landing =
-        details.landing || {};
+        result.details.landing || {};
 
 
+    // ===============================
+    // 実測値を安全に表示
+    // ===============================
 
-    // ==================================================
-    // 表示用関数
-    // ==================================================
-
-    function scoreText(
-        score
-    ) {
-
-        return (
-            Number.isFinite(
-                Number(score)
-            )
-                ? Number(score)
-                : 0
-        );
-
-    }
-
-
-    function measuredText(
-        value,
-        fallback = "-"
-    ) {
+    function valueText(value) {
 
         if (
             value === undefined ||
-            value === null ||
-            value === ""
+            value === null
         ) {
 
-            return fallback;
+            return "取得できませんでした";
 
         }
 
-        return value;
+        return String(value);
 
     }
 
 
+    // ===============================
+    // 腰の実測値
+    // ===============================
 
-    // ==================================================
-    // 腰の実測値表示
-    // ==================================================
-
-    let hipMeasurement = "";
-
-
-    if (
+    const hipMeasured =
         hip.measured !== undefined
-    ) {
-
-        hipMeasurement = `
-            <div class="ai-measurement">
-                <strong>腰上昇量（実測値）</strong>
-                <span>${measuredText(hip.measured)}</span>
-            </div>
-
-            <div class="ai-threshold">
-                <div>0点：${measuredText(hip.threshold0)}</div>
-                <div>1点：${measuredText(hip.threshold1)}</div>
-                <div>2点：${measuredText(hip.threshold2)}</div>
-            </div>
-        `;
-
-    }
+            ? hip.measured
+            : hip.value !== undefined
+                ? Number(hip.value).toFixed(3)
+                : "取得できませんでした";
 
 
+    // ===============================
+    // 膝の実測値
+    // ===============================
 
-    // ==================================================
-    // 各項目の実測値
-    // ==================================================
-
-    const kneeMeasurement =
-
+    const kneeMeasured =
         knee.measured !== undefined
-
-            ? `
-                <div class="ai-measurement">
-                    <strong>膝角度（実測値）</strong>
-                    <span>${measuredText(knee.measured)}</span>
-                </div>
-              `
-            : "";
+            ? knee.measured
+            : knee.value !== undefined
+                ? Number(knee.value).toFixed(1) + "°"
+                : "取得できませんでした";
 
 
-    const handMeasurement =
+    // ===============================
+    // 着手の実測値
+    // ===============================
 
+    const handMeasured =
         hand.measured !== undefined
-
-            ? `
-                <div class="ai-measurement">
-                    <strong>着手位置（実測値）</strong>
-                    <span>${measuredText(hand.measured)}</span>
-                </div>
-              `
-            : "";
+            ? hand.measured
+            : hand.value !== undefined
+                ? Number(hand.value).toFixed(3)
+                : "取得できませんでした";
 
 
-    const takeOffMeasurement =
+    // ===============================
+    // 踏切の実測値
+    // ===============================
 
+    const takeOffMeasured =
         takeOff.measured !== undefined
-
-            ? `
-                <div class="ai-measurement">
-                    <strong>踏切（実測値）</strong>
-                    <span>${measuredText(takeOff.measured)}</span>
-                </div>
-              `
-            : "";
+            ? takeOff.measured
+            : takeOff.value !== undefined
+                ? Number(takeOff.value).toFixed(3)
+                : "取得できませんでした";
 
 
-    const landingMeasurement =
+    // ===============================
+    // 着地の実測値
+    // ===============================
 
+    const landingMeasured =
         landing.measured !== undefined
-
-            ? `
-                <div class="ai-measurement">
-                    <strong>着地（実測値）</strong>
-                    <span>${measuredText(landing.measured)}</span>
-                </div>
-              `
-            : "";
+            ? landing.measured
+            : landing.value !== undefined
+                ? Number(landing.value).toFixed(3)
+                : "取得できませんでした";
 
 
-
-    // ==================================================
+    // ===============================
     // HTML生成
-    // ==================================================
+    // ===============================
 
     feedback.innerHTML = `
 
-        <div class="ai-result">
+        <h3>AI評価結果</h3>
 
-            <h3>
-                AI評価結果
-            </h3>
-
-
-            <h2>
-                Dスコア：
-                ${Number(result.score).toFixed(1)}点
-            </h2>
+        <h2>
+            Dスコア：
+            ${Number(result.score).toFixed(1)}点
+        </h2>
 
 
-            <!-- ========================== -->
-            <!-- ① 膝 -->
-            <!-- ========================== -->
+        <!-- ================= -->
+        <!-- ① 膝 -->
+        <!-- ================= -->
 
-            <div class="ai-item">
+        <h3>① 膝の伸び</h3>
 
-                <h3>
-                    ① 膝の伸び
-                </h3>
+        <p>
+            ${valueText(knee.text)}
+        </p>
 
-                <p>
-                    ${knee.text || ""}
-                </p>
+        <p>
+            評価：
+            <strong>
+                ${Number(knee.score) || 0}/2点
+            </strong>
+        </p>
 
-                <p>
-                    評価：
-                    <strong>
-                        ${scoreText(knee.score)}/2点
-                    </strong>
-                </p>
-
-                ${kneeMeasurement}
-
-            </div>
+        <p>
+            <strong>膝角度（実測値）：</strong>
+            ${kneeMeasured}
+        </p>
 
 
+        <!-- ================= -->
+        <!-- ② 腰 -->
+        <!-- ================= -->
 
-            <!-- ========================== -->
-            <!-- ② 腰 -->
-            <!-- ========================== -->
+        <h3>② 腰の位置</h3>
 
-            <div class="ai-item">
+        <p>
+            ${valueText(hip.text)}
+        </p>
 
-                <h3>
-                    ② 腰の位置
-                </h3>
+        <p>
+            評価：
+            <strong>
+                ${Number(hip.score) || 0}/2点
+            </strong>
+        </p>
 
-                <p>
-                    ${hip.text || ""}
-                </p>
+        <p>
+            <strong>
+                腰上昇量（実測値）：
+            </strong>
+            ${hipMeasured}
+        </p>
 
-                <p>
-                    評価：
-                    <strong>
-                        ${scoreText(hip.score)}/2点
-                    </strong>
-                </p>
+        <p>
+            <strong>現在の判定基準</strong><br>
 
-                ${hipMeasurement}
+            0点：
+            ${valueText(hip.threshold0)}
+            <br>
 
-            </div>
+            1点：
+            ${valueText(hip.threshold1)}
+            <br>
 
-
-
-            <!-- ========================== -->
-            <!-- ③ 着手 -->
-            <!-- ========================== -->
-
-            <div class="ai-item">
-
-                <h3>
-                    ③ 着手位置
-                </h3>
-
-                <p>
-                    ${hand.text || ""}
-                </p>
-
-                <p>
-                    評価：
-                    <strong>
-                        ${scoreText(hand.score)}/2点
-                    </strong>
-                </p>
-
-                ${handMeasurement}
-
-            </div>
+            2点：
+            ${valueText(hip.threshold2)}
+        </p>
 
 
+        <!-- ================= -->
+        <!-- ③ 着手 -->
+        <!-- ================= -->
 
-            <!-- ========================== -->
-            <!-- ④ 両足踏切 -->
-            <!-- ========================== -->
+        <h3>③ 着手位置</h3>
 
-            <div class="ai-item">
+        <p>
+            ${valueText(hand.text)}
+        </p>
 
-                <h3>
-                    ④ 両足踏切
-                </h3>
+        <p>
+            評価：
+            <strong>
+                ${Number(hand.score) || 0}/2点
+            </strong>
+        </p>
 
-                <p>
-                    ${takeOff.text || ""}
-                </p>
-
-                <p>
-                    評価：
-                    <strong>
-                        ${scoreText(takeOff.score)}/2点
-                    </strong>
-                </p>
-
-                ${takeOffMeasurement}
-
-            </div>
+        <p>
+            <strong>
+                着手位置（実測値）：
+            </strong>
+            ${handMeasured}
+        </p>
 
 
+        <!-- ================= -->
+        <!-- ④ 踏切 -->
+        <!-- ================= -->
 
-            <!-- ========================== -->
-            <!-- ⑤ 着地 -->
-            <!-- ========================== -->
+        <h3>④ 両足踏切</h3>
 
-            <div class="ai-item">
+        <p>
+            ${valueText(takeOff.text)}
+        </p>
 
-                <h3>
-                    ⑤ 着地の安定
-                </h3>
+        <p>
+            評価：
+            <strong>
+                ${Number(takeOff.score) || 0}/2点
+            </strong>
+        </p>
 
-                <p>
-                    ${landing.text || ""}
-                </p>
-
-                <p>
-                    評価：
-                    <strong>
-                        ${scoreText(landing.score)}/2点
-                    </strong>
-                </p>
-
-                ${landingMeasurement}
-
-            </div>
+        <p>
+            <strong>
+                踏切（実測値）：
+            </strong>
+            ${takeOffMeasured}
+        </p>
 
 
+        <!-- ================= -->
+        <!-- ⑤ 着地 -->
+        <!-- ================= -->
 
-            <!-- ========================== -->
-            <!-- 総合コメント -->
-            <!-- ========================== -->
+        <h3>⑤ 着地の安定</h3>
 
-            <div class="ai-total-comment">
+        <p>
+            ${valueText(landing.text)}
+        </p>
 
-                <h3>
-                    総合コメント
-                </h3>
+        <p>
+            評価：
+            <strong>
+                ${Number(landing.score) || 0}/2点
+            </strong>
+        </p>
 
-                <p>
-                    ${createTotalComment(result)}
-                </p>
+        <p>
+            <strong>
+                着地（実測値）：
+            </strong>
+            ${landingMeasured}
+        </p>
 
-            </div>
 
-        </div>
+        <!-- ================= -->
+        <!-- 総合コメント -->
+        <!-- ================= -->
+
+        <h3>総合コメント</h3>
+
+        <p>
+            ${createTotalComment(result)}
+        </p>
 
     `;
+
+
+    // ===============================
+    // コンソール確認
+    // ===============================
+
+    console.log(
+        "========== FEEDBACK Ver5.8 =========="
+    );
+
+    console.log(
+        "Dスコア:",
+        result.score
+    );
+
+    console.log(
+        "膝実測値:",
+        kneeMeasured
+    );
+
+    console.log(
+        "腰実測値:",
+        hipMeasured
+    );
+
+    console.log(
+        "着手実測値:",
+        handMeasured
+    );
+
+    console.log(
+        "踏切実測値:",
+        takeOffMeasured
+    );
+
+    console.log(
+        "着地実測値:",
+        landingMeasured
+    );
 
 }
 
 
-
-// ==================================================
+// ===============================
 // 総合コメント
-// ==================================================
+// ===============================
 
 function createTotalComment(result) {
 
@@ -375,27 +346,21 @@ function createTotalComment(result) {
         Number(result.score);
 
 
-    if (
-        score >= 9
-    ) {
+    if (score >= 9) {
 
         return "とてもすばらしい動きです。各動作が安定しています。";
 
     }
 
 
-    if (
-        score >= 7
-    ) {
+    if (score >= 7) {
 
         return "すばらしい動きです。できている部分を維持しながら、さらに安定させましょう。";
 
     }
 
 
-    if (
-        score >= 5
-    ) {
+    if (score >= 5) {
 
         return "基本的な動きができています。苦手な部分を意識して練習しましょう。";
 
@@ -407,15 +372,14 @@ function createTotalComment(result) {
 }
 
 
-
-// ==================================================
+// ===============================
 // 公開
-// ==================================================
+// ===============================
 
 window.showFeedback =
     showFeedback;
 
 
 console.log(
-    "feedback.js Ver5.7 読み込み成功"
+    "feedback.js Ver5.8 読み込み成功"
 );
