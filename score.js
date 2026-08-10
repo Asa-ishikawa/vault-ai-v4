@@ -145,6 +145,11 @@ function calculateDScore(frames, phase) {
 
     }
 
+console.log(
+    "【膝検証】kneeValues:",
+    kneeValues
+);
+
 
     const kneeAngle =
         kneeValues.length > 0
