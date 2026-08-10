@@ -1,9 +1,9 @@
 // ===============================
-// 跳び箱AI採点システム Ver5.7
+// 跳び箱AI採点システム Ver5.8
 // score.js 完成版
 // 実測値表示対応
+// 着地判定連携版
 // ===============================
-
 
 function calculateDScore(frames, phase) {
 
@@ -44,6 +44,15 @@ function calculateDScore(frames, phase) {
 
     function findFrame(frameNumber) {
 
+        // 着地なしの場合
+        if (
+            frameNumber === -1 ||
+            frameNumber === null ||
+            typeof frameNumber === "undefined"
+        ) {
+            return -1;
+        }
+
         let bestIndex = 0;
         let bestDifference = Infinity;
 
@@ -71,7 +80,6 @@ function calculateDScore(frames, phase) {
         });
 
         return bestIndex;
-
     }
 
 
@@ -89,7 +97,6 @@ function calculateDScore(frames, phase) {
 
     const landingIndex =
         findFrame(phase.landing);
-
 
 
     // ==================================================
@@ -181,36 +188,36 @@ function calculateDScore(frames, phase) {
     }
 
 
-
     // ==================================================
     // ② 腰の位置
-    //
-    // Ver5.7
-    //
-    // 踏切時から最高点まで
-    // 腰がどれだけ上昇したかを測定
-    //
-    // ★実測値を結果に保存
     // ==================================================
 
     const takeOffFrame =
-        data[takeOffIndex];
+        takeOffIndex >= 0
+            ? data[takeOffIndex]
+            : null;
 
 
     const peakFrame =
-        data[hipIndex];
+        hipIndex >= 0
+            ? data[hipIndex]
+            : null;
 
 
     const takeOffHip =
-        getHipCenter(
-            takeOffFrame
-        );
+        takeOffFrame
+            ? getHipCenter(
+                takeOffFrame
+            )
+            : null;
 
 
     const peakHip =
-        getHipCenter(
-            peakFrame
-        );
+        peakFrame
+            ? getHipCenter(
+                peakFrame
+            )
+            : null;
 
 
     // ==================================================
@@ -218,9 +225,11 @@ function calculateDScore(frames, phase) {
     // ==================================================
 
     let bodyScale =
-        getBodyScale(
-            peakFrame
-        );
+        peakFrame
+            ? getBodyScale(
+                peakFrame
+            )
+            : 0.3;
 
 
     if (
@@ -231,7 +240,6 @@ function calculateDScore(frames, phase) {
         bodyScale = 0.3;
 
     }
-
 
 
     // ==================================================
@@ -254,7 +262,6 @@ function calculateDScore(frames, phase) {
             bodyScale;
 
     }
-
 
 
     // ==================================================
@@ -299,7 +306,8 @@ function calculateDScore(frames, phase) {
         if (
             !hip ||
             !Number.isFinite(scale) ||
-            scale <= 0
+            scale <= 0 ||
+            !takeOffHip
         ) {
             continue;
         }
@@ -307,9 +315,8 @@ function calculateDScore(frames, phase) {
 
         const rise =
             (
-                takeOffHip
-                    ? takeOffHip.y - hip.y
-                    : 0
+                takeOffHip.y -
+                hip.y
             ) /
             scale;
 
@@ -339,17 +346,8 @@ function calculateDScore(frames, phase) {
     }
 
 
-
     // ==================================================
     // 腰の評価
-    //
-    // 現在の基準値
-    //
-    // 2点 → 0.35以上
-    // 1点 → 0.20以上
-    // 0点 → 0.20未満
-    //
-    // ※今後、実測値を見ながら調整する
     // ==================================================
 
     let hipScore = 0;
@@ -386,7 +384,6 @@ function calculateDScore(frames, phase) {
             "踏み切った後、腰を高く上げることを意識しましょう。";
 
     }
-
 
 
     // ==================================================
@@ -526,7 +523,6 @@ function calculateDScore(frames, phase) {
     }
 
 
-
     // ==================================================
     // ④ 両足踏切
     // ==================================================
@@ -644,72 +640,96 @@ function calculateDScore(frames, phase) {
     }
 
 
-
     // ==================================================
     // ⑤ 着地の安定
+    //
+    // ★今回の重要な修正
+    //
+    // phase.js が「着地なし」と判定した場合は
+    // 左右足首Y差が小さくても着地点を与えない。
+    //
+    // これにより、
+    //
+    // 「跳び箱の上に座って動画終了」
+    //
+    // のような動画を着地2点にしない。
     // ==================================================
+
+    const hasLanding =
+        Number.isFinite(
+            Number(phase.landing)
+        ) &&
+        Number(phase.landing) >= 0;
+
 
     const landingValues = [];
 
 
-    const landingStart =
-        Math.max(
-            0,
-            landingIndex - 6
-        );
-
-
-    const landingEnd =
-        Math.min(
-            data.length - 1,
-            landingIndex + 6
-        );
-
-
-    for (
-        let i = landingStart;
-        i <= landingEnd;
-        i++
+    if (
+        hasLanding &&
+        landingIndex >= 0
     ) {
 
-        const left =
-            getPoint(
-                data[i],
-                27
+        const landingStart =
+            Math.max(
+                0,
+                landingIndex - 6
             );
 
 
-        const right =
-            getPoint(
-                data[i],
-                28
+        const landingEnd =
+            Math.min(
+                data.length - 1,
+                landingIndex + 6
             );
 
 
-        if (
-            !left ||
-            !right
-        ) {
-            continue;
-        }
-
-
-        const difference =
-            Math.abs(
-                left.y -
-                right.y
-            );
-
-
-        if (
-            Number.isFinite(
-                difference
-            )
+        for (
+            let i = landingStart;
+            i <= landingEnd;
+            i++
         ) {
 
-            landingValues.push(
-                difference
-            );
+            const left =
+                getPoint(
+                    data[i],
+                    27
+                );
+
+
+            const right =
+                getPoint(
+                    data[i],
+                    28
+                );
+
+
+            if (
+                !left ||
+                !right
+            ) {
+                continue;
+            }
+
+
+            const difference =
+                Math.abs(
+                    left.y -
+                    right.y
+                );
+
+
+            if (
+                Number.isFinite(
+                    difference
+                )
+            ) {
+
+                landingValues.push(
+                    difference
+                );
+
+            }
 
         }
 
@@ -730,7 +750,24 @@ function calculateDScore(frames, phase) {
     let landingText = "";
 
 
-    if (
+    // --------------------------------------------------
+    // 着地なし
+    // --------------------------------------------------
+
+    if (!hasLanding) {
+
+        landingScore = 0;
+
+        landingText =
+            "着地が確認できませんでした。床まで着地する動作を確認しましょう。";
+
+    }
+
+    // --------------------------------------------------
+    // 着地あり＋安定
+    // --------------------------------------------------
+
+    else if (
         landingDifference < 0.05
     ) {
 
@@ -740,6 +777,10 @@ function calculateDScore(frames, phase) {
             "着地が安定しています。";
 
     }
+
+    // --------------------------------------------------
+    // 着地あり＋やや不安定
+    // --------------------------------------------------
 
     else if (
         landingDifference < 0.1
@@ -752,6 +793,10 @@ function calculateDScore(frames, phase) {
 
     }
 
+    // --------------------------------------------------
+    // 着地あり＋不安定
+    // --------------------------------------------------
+
     else {
 
         landingScore = 0;
@@ -760,7 +805,6 @@ function calculateDScore(frames, phase) {
             "着地では両足を安定させることを意識しましょう。";
 
     }
-
 
 
     // ==================================================
@@ -773,7 +817,6 @@ function calculateDScore(frames, phase) {
         handScore +
         takeOffScore +
         landingScore;
-
 
 
     // ==================================================
@@ -887,10 +930,15 @@ function calculateDScore(frames, phase) {
 
                 text: landingText,
 
-                value: landingDifference,
+                value:
+                    hasLanding
+                        ? landingDifference
+                        : 0,
 
                 measured:
-                    landingDifference.toFixed(3),
+                    hasLanding
+                        ? landingDifference.toFixed(3)
+                        : "着地なし",
 
                 unit:
                     "左右足首Y差"
@@ -902,13 +950,12 @@ function calculateDScore(frames, phase) {
     };
 
 
-
     // ==================================================
     // コンソール
     // ==================================================
 
     console.log(
-        "========== Ver5.7 SCORE =========="
+        "========== Ver5.8 SCORE =========="
     );
 
 
@@ -949,7 +996,9 @@ function calculateDScore(frames, phase) {
         "着地:",
         landingScore,
         "実測値:",
-        landingDifference.toFixed(3)
+        hasLanding
+            ? landingDifference.toFixed(3)
+            : "着地なし"
     );
 
 
@@ -960,9 +1009,7 @@ function calculateDScore(frames, phase) {
 
 
     return result;
-
 }
-
 
 
 // ===============================
@@ -972,7 +1019,6 @@ function calculateDScore(frames, phase) {
 window.calculateDScore =
     calculateDScore;
 
-
 console.log(
-    "score.js Ver5.7 読み込み成功"
+    "score.js Ver5.8 読み込み成功"
 );
