@@ -111,7 +111,80 @@ const kneeValues = [];
 // 3点から膝角度を計算
 // ==================================================
 
-function
+function calculateKneeAngle(hip, knee, ankle) {
+
+    if (
+        !hip ||
+        !knee ||
+        !ankle
+    ) {
+        return null;
+    }
+
+    const v1x =
+        hip.x - knee.x;
+
+    const v1y =
+        hip.y - knee.y;
+
+    const v2x =
+        ankle.x - knee.x;
+
+    const v2y =
+        ankle.y - knee.y;
+
+    const dot =
+        v1x * v2x +
+        v1y * v2y;
+
+    const length1 =
+        Math.sqrt(
+            v1x * v1x +
+            v1y * v1y
+        );
+
+    const length2 =
+        Math.sqrt(
+            v2x * v2x +
+            v2y * v2y
+        );
+
+    if (
+        length1 <= 0 ||
+        length2 <= 0
+    ) {
+        return null;
+    }
+
+    let cos =
+        dot /
+        (
+            length1 *
+            length2
+        );
+
+    cos =
+        Math.max(
+            -1,
+            Math.min(
+                1,
+                cos
+            )
+        );
+
+    const angle =
+        Math.acos(cos) *
+        180 /
+        Math.PI;
+
+    if (
+        !Number.isFinite(angle)
+    ) {
+        return null;
+    }
+
+    return angle;
+}
 
 
     // ==================================================
