@@ -100,56 +100,264 @@ function calculateDScore(frames, phase) {
 
 
     // ==================================================
-    // ① 膝の伸び
-    // ==================================================
+// ① 膝の伸び
+// Ver5.8
+// 膝角度を直接計算する方式
+// ==================================================
 
-    const kneeValues = [];
+const kneeValues = [];
 
 
-    const kneeStart =
+// ----------------------------------------
+// 3点から膝角度を計算
+// ----------------------------------------
+
+function calculateKneeAngle(hip, knee, ankle) {
+
+    if (
+        !hip ||
+        !knee ||
+        !ankle
+    ) {
+        return null;
+    }
+
+    const v1x =
+        hip.x - knee.x;
+
+    const v1y =
+        hip.y - knee.y;
+
+    const v2x =
+        ankle.x - knee.x;
+
+    const v2y =
+        ankle.y - knee.y;
+
+
+    const dot =
+        v1x * v2x +
+        v1y * v2y;
+
+
+    const length1 =
+        Math.sqrt(
+            v1x * v1x +
+            v1y * v1y
+        );
+
+
+    const length2 =
+        Math.sqrt(
+            v2x * v2x +
+            v2y * v2y
+        );
+
+
+    if (
+        length1 <= 0 ||
+        length2 <= 0
+    ) {
+        return null;
+    }
+
+
+    let cos =
+        dot /
+        (length1 * length2);
+
+
+    // 数値誤差対策
+    cos =
         Math.max(
-            handIndex,
-            hipIndex - 6
+            -1,
+            Math.min(
+                1,
+                cos
+            )
         );
 
 
-    const kneeEnd =
-        Math.min(
-            data.length - 1,
-            hipIndex + 6
+    const angle =
+        Math.acos(cos) *
+        180 /
+        Math.PI;
+
+
+    if (
+        !Number.isFinite(angle)
+    ) {
+        return null;
+    }
+
+
+    return angle;
+}
+
+
+
+// ----------------------------------------
+// 膝角度を取得
+// ----------------------------------------
+
+const kneeStart =
+    Math.max(
+        handIndex,
+        hipIndex - 6
+    );
+
+
+const kneeEnd =
+    Math.min(
+        data.length - 1,
+        hipIndex + 6
+    );
+
+
+for (
+    let i = kneeStart;
+    i <= kneeEnd;
+    i++
+) {
+
+    const frame =
+        data[i];
+
+
+    // 左脚
+    const leftHip =
+        getPoint(frame, 23);
+
+    const leftKnee =
+        getPoint(frame, 25);
+
+    const leftAnkle =
+        getPoint(frame, 27);
+
+
+    const leftAngle =
+        calculateKneeAngle(
+            leftHip,
+            leftKnee,
+            leftAnkle
         );
 
 
-    for (
-        let i = kneeStart;
-        i <= kneeEnd;
-        i++
+    // 右脚
+    const rightHip =
+        getPoint(frame, 24);
+
+    const rightKnee =
+        getPoint(frame, 26);
+
+    const rightAnkle =
+        getPoint(frame, 28);
+
+
+    const rightAngle =
+        calculateKneeAngle(
+            rightHip,
+            rightKnee,
+            rightAnkle
+        );
+
+
+    // ------------------------------------
+    // 有効な角度だけ採用
+    // ------------------------------------
+
+    if (
+        Number.isFinite(leftAngle) &&
+        leftAngle > 0
     ) {
 
-        const angle =
-            getAverageKneeAngle(
-                data[i]
-            );
-
-
-        if (
-            Number.isFinite(angle) &&
-            angle > 0
-        ) {
-
-            kneeValues.push(
-                angle
-            );
-
-        }
+        kneeValues.push(
+            leftAngle
+        );
 
     }
-// ==================================================
-// 膝角度検証用・画面表示
-// ==================================================
+
+
+    if (
+        Number.isFinite(rightAngle) &&
+        rightAngle > 0
+    ) {
+
+        kneeValues.push(
+            rightAngle
+        );
+
+    }
+
+}
+
+
+
+// ----------------------------------------
+// 平均膝角度
+// ----------------------------------------
+
+const kneeAngle =
+    kneeValues.length > 0
+        ? kneeValues.reduce(
+            (a, b) => a + b,
+            0
+        ) /
+        kneeValues.length
+        : 0;
+
+
+
+// ----------------------------------------
+// 膝の判定
+// ----------------------------------------
+
+let kneeScore = 0;
+let kneeText = "";
+
+
+if (
+    kneeAngle >= 165
+) {
+
+    kneeScore = 2;
+
+    kneeText =
+        "膝がしっかり伸びています。";
+
+}
+
+else if (
+    kneeAngle >= 150
+) {
+
+    kneeScore = 1;
+
+    kneeText =
+        "膝は伸びていますが、もう少し伸ばせます。";
+
+}
+
+else {
+
+    kneeScore = 0;
+
+    kneeText =
+        "空中で膝を伸ばすことを意識しましょう。";
+
+}
+
+
+
+// ----------------------------------------
+// 画面表示用デバッグ
+// ----------------------------------------
 
 const kneeDebug =
-    document.getElementById("kneeDebug");
+    document.getElementById(
+        "kneeDebug"
+    );
+
 
 if (kneeDebug) {
 
@@ -158,53 +366,16 @@ if (kneeDebug) {
         (
             kneeValues.length > 0
                 ? kneeValues
-                    .map(v => Number(v).toFixed(1))
+                    .map(
+                        v =>
+                            Number(v)
+                                .toFixed(1)
+                    )
                     .join(" / ")
                 : "データなし"
         );
 
 }
-
-    const kneeAngle =
-        kneeValues.length > 0
-            ? kneeValues.reduce(
-                (a, b) => a + b,
-                0
-            ) /
-            kneeValues.length
-            : 0;
-
-
-    let kneeScore = 0;
-    let kneeText = "";
-
-
-    if (kneeAngle >= 165) {
-
-        kneeScore = 2;
-
-        kneeText =
-            "膝がしっかり伸びています。";
-
-    }
-
-    else if (kneeAngle >= 150) {
-
-        kneeScore = 1;
-
-        kneeText =
-            "膝は伸びていますが、もう少し伸ばせます。";
-
-    }
-
-    else {
-
-        kneeScore = 0;
-
-        kneeText =
-            "空中で膝を伸ばすことを意識しましょう。";
-
-    }
 
 
     // ==================================================
