@@ -144,12 +144,26 @@ function calculateDScore(frames, phase) {
         }
 
     }
+// ==================================================
+// 膝角度検証用・画面表示
+// ==================================================
 
-console.log(
-    "【膝検証】kneeValues:",
-    kneeValues
-);
+const kneeDebug =
+    document.getElementById("kneeDebug");
 
+if (kneeDebug) {
+
+    kneeDebug.textContent =
+        "膝角度候補：" +
+        (
+            kneeValues.length > 0
+                ? kneeValues
+                    .map(v => Number(v).toFixed(1))
+                    .join(" / ")
+                : "データなし"
+        );
+
+}
 
     const kneeAngle =
         kneeValues.length > 0
