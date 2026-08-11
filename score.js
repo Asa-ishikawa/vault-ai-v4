@@ -1,21 +1,35 @@
-// ===============================
-// 跳び箱AI採点システム Ver5.8
-// score.js 完成版
-// 実測値表示対応
-// 着地判定連携版
-// ===============================
+// ==================================================
+// 跳び箱AI採点システム
+// score.js Ver5.9 完成版
+//
+// ・膝角度判定
+// ・腰上昇量判定
+// ・着手位置判定
+// ・両足踏切判定
+// ・着地安定判定
+// ・実測値表示
+// ・膝角度候補表示
+// ・着地なし判定
+// ==================================================
+
 
 function calculateDScore(frames, phase) {
+
+    // ==================================================
+    // 基本チェック
+    // ==================================================
 
     if (
         !Array.isArray(frames) ||
         frames.length < 20 ||
         !phase
     ) {
+
         return {
             score: 0,
             details: {}
         };
+
     }
 
 
@@ -31,10 +45,12 @@ function calculateDScore(frames, phase) {
         !data ||
         data.length < 20
     ) {
+
         return {
             score: 0,
             details: {}
         };
+
     }
 
 
@@ -44,147 +60,421 @@ function calculateDScore(frames, phase) {
 
     function findFrame(frameNumber) {
 
-        // 着地なしの場合
-        if (
-            frameNumber === -1 ||
-            frameNumber === null ||
-            typeof frameNumber === "undefined"
-        ) {
-            return -1;
-        }
-
         let bestIndex = 0;
         let bestDifference = Infinity;
 
-        data.forEach((frame, index) => {
 
-            const difference =
-                Math.abs(
-                    Number(frame.frame) -
-                    Number(frameNumber)
-                );
+        data.forEach(
+            (frame, index) => {
 
-            if (
-                difference <
-                bestDifference
-            ) {
+                const difference =
+                    Math.abs(
+                        Number(frame.frame) -
+                        Number(frameNumber)
+                    );
 
-                bestDifference =
-                    difference;
 
-                bestIndex =
-                    index;
+                if (
+                    difference <
+                    bestDifference
+                ) {
+
+                    bestDifference =
+                        difference;
+
+                    bestIndex =
+                        index;
+
+                }
 
             }
+        );
 
-        });
 
         return bestIndex;
+
     }
 
 
     const takeOffIndex =
-        findFrame(phase.takeOff);
+        findFrame(
+            phase.takeOff
+        );
 
 
     const handIndex =
-        findFrame(phase.handContact);
+        findFrame(
+            phase.handContact
+        );
 
 
     const hipIndex =
-        findFrame(phase.highestHip);
+        findFrame(
+            phase.highestHip
+        );
 
 
     const landingIndex =
-        findFrame(phase.landing);
-
-// ==================================================
-// ① 膝の伸び
-// Ver5.9
-// 膝角度取得・フレーム範囲改善版
-// ==================================================
-
-const kneeValues = [];
+        findFrame(
+            phase.landing
+        );
 
 
-// ==================================================
-// 3点から膝角度を計算
-// ==================================================
 
-function calculateKneeAngle(hip, knee, ankle) {
+    // ==================================================
+    // ① 膝の伸び
+    // ==================================================
 
-    if (
-        !hip ||
-        !knee ||
-        !ankle
+    const kneeValues = [];
+
+
+    // --------------------------------------------------
+    // 3点から膝角度を計算
+    // --------------------------------------------------
+
+    function calculateKneeAngle(
+        hip,
+        knee,
+        ankle
     ) {
-        return null;
+
+        if (
+            !hip ||
+            !knee ||
+            !ankle
+        ) {
+
+            return null;
+
+        }
+
+
+        const v1x =
+            hip.x -
+            knee.x;
+
+
+        const v1y =
+            hip.y -
+            knee.y;
+
+
+        const v2x =
+            ankle.x -
+            knee.x;
+
+
+        const v2y =
+            ankle.y -
+            knee.y;
+
+
+        const dot =
+            v1x * v2x +
+            v1y * v2y;
+
+
+        const length1 =
+            Math.sqrt(
+                v1x * v1x +
+                v1y * v1y
+            );
+
+
+        const length2 =
+            Math.sqrt(
+                v2x * v2x +
+                v2y * v2y
+            );
+
+
+        if (
+            length1 <= 0 ||
+            length2 <= 0
+        ) {
+
+            return null;
+
+        }
+
+
+        let cos =
+            dot /
+            (
+                length1 *
+                length2
+            );
+
+
+        cos =
+            Math.max(
+                -1,
+                Math.min(
+                    1,
+                    cos
+                )
+            );
+
+
+        const angle =
+            Math.acos(cos) *
+            180 /
+            Math.PI;
+
+
+        if (
+            !Number.isFinite(angle)
+        ) {
+
+            return null;
+
+        }
+
+
+        return angle;
+
     }
 
-    const v1x =
-        hip.x - knee.x;
 
-    const v1y =
-        hip.y - knee.y;
 
-    const v2x =
-        ankle.x - knee.x;
+    // --------------------------------------------------
+    // 膝を測定する範囲
+    //
+    // 腰の最高点を中心に前後20フレーム
+    // --------------------------------------------------
 
-    const v2y =
-        ankle.y - knee.y;
-
-    const dot =
-        v1x * v2x +
-        v1y * v2y;
-
-    const length1 =
-        Math.sqrt(
-            v1x * v1x +
-            v1y * v1y
-        );
-
-    const length2 =
-        Math.sqrt(
-            v2x * v2x +
-            v2y * v2y
-        );
-
-    if (
-        length1 <= 0 ||
-        length2 <= 0
-    ) {
-        return null;
-    }
-
-    let cos =
-        dot /
-        (
-            length1 *
-            length2
-        );
-
-    cos =
+    const kneeStart =
         Math.max(
-            -1,
-            Math.min(
-                1,
-                cos
-            )
+            0,
+            hipIndex - 20
         );
 
-    const angle =
-        Math.acos(cos) *
-        180 /
-        Math.PI;
 
-    if (
-        !Number.isFinite(angle)
+    const kneeEnd =
+        Math.min(
+            data.length - 1,
+            hipIndex + 20
+        );
+
+
+
+    // --------------------------------------------------
+    // 各フレームを確認
+    // --------------------------------------------------
+
+    for (
+        let i = kneeStart;
+        i <= kneeEnd;
+        i++
     ) {
-        return null;
+
+        const frame =
+            data[i];
+
+
+        if (!frame) {
+
+            continue;
+
+        }
+
+
+
+        // ==============================================
+        // 左脚
+        // ==============================================
+
+        const leftHip =
+            getPoint(
+                frame,
+                23
+            );
+
+
+        const leftKnee =
+            getPoint(
+                frame,
+                25
+            );
+
+
+        const leftAnkle =
+            getPoint(
+                frame,
+                27
+            );
+
+
+        const leftAngle =
+            calculateKneeAngle(
+                leftHip,
+                leftKnee,
+                leftAnkle
+            );
+
+
+        if (
+            Number.isFinite(
+                leftAngle
+            ) &&
+            leftAngle > 0 &&
+            leftAngle <= 180
+        ) {
+
+            kneeValues.push(
+                leftAngle
+            );
+
+        }
+
+
+
+        // ==============================================
+        // 右脚
+        // ==============================================
+
+        const rightHip =
+            getPoint(
+                frame,
+                24
+            );
+
+
+        const rightKnee =
+            getPoint(
+                frame,
+                26
+            );
+
+
+        const rightAnkle =
+            getPoint(
+                frame,
+                28
+            );
+
+
+        const rightAngle =
+            calculateKneeAngle(
+                rightHip,
+                rightKnee,
+                rightAnkle
+            );
+
+
+        if (
+            Number.isFinite(
+                rightAngle
+            ) &&
+            rightAngle > 0 &&
+            rightAngle <= 180
+        ) {
+
+            kneeValues.push(
+                rightAngle
+            );
+
+        }
+
     }
 
-    return angle;
-}
+
+
+    // --------------------------------------------------
+    // 膝角度
+    // --------------------------------------------------
+
+    let kneeAngle = 0;
+
+
+    if (
+        kneeValues.length > 0
+    ) {
+
+        kneeAngle =
+            kneeValues.reduce(
+                (a, b) =>
+                    a + b,
+                0
+            ) /
+            kneeValues.length;
+
+    }
+
+
+
+    // --------------------------------------------------
+    // 膝の評価
+    // --------------------------------------------------
+
+    let kneeScore = 0;
+    let kneeText = "";
+
+
+    if (
+        kneeAngle >= 165
+    ) {
+
+        kneeScore = 2;
+
+        kneeText =
+            "膝がしっかり伸びています。";
+
+    }
+
+    else if (
+        kneeAngle >= 150
+    ) {
+
+        kneeScore = 1;
+
+        kneeText =
+            "膝は伸びていますが、もう少し伸ばせます。";
+
+    }
+
+    else {
+
+        kneeScore = 0;
+
+        kneeText =
+            "空中で膝を伸ばすことを意識しましょう。";
+
+    }
+
+
+
+    // --------------------------------------------------
+    // 膝デバッグ情報を画面へ
+    // --------------------------------------------------
+
+    const kneeDebug =
+        document.getElementById(
+            "kneeDebug"
+        );
+
+
+    if (
+        kneeDebug
+    ) {
+
+        kneeDebug.textContent =
+            "膝角度候補：" +
+            (
+                kneeValues.length > 0
+                    ? kneeValues
+                        .map(
+                            value =>
+                                Number(
+                                    value
+                                ).toFixed(1)
+                        )
+                        .join(" / ")
+                    : "データなし"
+            );
+
+    }
+
 
 
     // ==================================================
@@ -192,31 +482,24 @@ function calculateKneeAngle(hip, knee, ankle) {
     // ==================================================
 
     const takeOffFrame =
-        takeOffIndex >= 0
-            ? data[takeOffIndex]
-            : null;
+        data[takeOffIndex];
 
 
     const peakFrame =
-        hipIndex >= 0
-            ? data[hipIndex]
-            : null;
+        data[hipIndex];
 
 
     const takeOffHip =
-        takeOffFrame
-            ? getHipCenter(
-                takeOffFrame
-            )
-            : null;
+        getHipCenter(
+            takeOffFrame
+        );
 
 
     const peakHip =
-        peakFrame
-            ? getHipCenter(
-                peakFrame
-            )
-            : null;
+        getHipCenter(
+            peakFrame
+        );
+
 
 
     // ==================================================
@@ -224,21 +507,22 @@ function calculateKneeAngle(hip, knee, ankle) {
     // ==================================================
 
     let bodyScale =
-        peakFrame
-            ? getBodyScale(
-                peakFrame
-            )
-            : 0.3;
+        getBodyScale(
+            peakFrame
+        );
 
 
     if (
-        !Number.isFinite(bodyScale) ||
+        !Number.isFinite(
+            bodyScale
+        ) ||
         bodyScale <= 0
     ) {
 
         bodyScale = 0.3;
 
     }
+
 
 
     // ==================================================
@@ -263,8 +547,9 @@ function calculateKneeAngle(hip, knee, ankle) {
     }
 
 
+
     // ==================================================
-    // 最高点付近を複数フレーム確認
+    // 最高点付近を確認
     // ==================================================
 
     const peakHipValues = [];
@@ -304,24 +589,31 @@ function calculateKneeAngle(hip, knee, ankle) {
 
         if (
             !hip ||
-            !Number.isFinite(scale) ||
-            scale <= 0 ||
-            !takeOffHip
+            !Number.isFinite(
+                scale
+            ) ||
+            scale <= 0
         ) {
+
             continue;
+
         }
 
 
         const rise =
             (
-                takeOffHip.y -
-                hip.y
+                takeOffHip
+                    ? takeOffHip.y -
+                      hip.y
+                    : 0
             ) /
             scale;
 
 
         if (
-            Number.isFinite(rise)
+            Number.isFinite(
+                rise
+            )
         ) {
 
             peakHipValues.push(
@@ -345,8 +637,13 @@ function calculateKneeAngle(hip, knee, ankle) {
     }
 
 
+
     // ==================================================
     // 腰の評価
+    //
+    // 0点：0.200未満
+    // 1点：0.200～0.349
+    // 2点：0.350以上
     // ==================================================
 
     let hipScore = 0;
@@ -383,6 +680,7 @@ function calculateKneeAngle(hip, knee, ankle) {
             "踏み切った後、腰を高く上げることを意識しましょう。";
 
     }
+
 
 
     // ==================================================
@@ -442,10 +740,14 @@ function calculateKneeAngle(hip, knee, ankle) {
             !left ||
             !right ||
             !hip ||
-            !Number.isFinite(scale) ||
+            !Number.isFinite(
+                scale
+            ) ||
             scale <= 0
         ) {
+
             continue;
+
         }
 
 
@@ -482,7 +784,9 @@ function calculateKneeAngle(hip, knee, ankle) {
 
     const handPosition =
         handValues.length > 0
-            ? Math.max(...handValues)
+            ? Math.max(
+                ...handValues
+            )
             : 0;
 
 
@@ -520,6 +824,7 @@ function calculateKneeAngle(hip, knee, ankle) {
             "跳び箱に対して適切な位置へ手をつくことを意識しましょう。";
 
     }
+
 
 
     // ==================================================
@@ -567,7 +872,9 @@ function calculateKneeAngle(hip, knee, ankle) {
             !left ||
             !right
         ) {
+
             continue;
+
         }
 
 
@@ -596,7 +903,8 @@ function calculateKneeAngle(hip, knee, ankle) {
     const footDifference =
         footValues.length > 0
             ? footValues.reduce(
-                (a, b) => a + b,
+                (a, b) =>
+                    a + b,
                 0
             ) /
             footValues.length
@@ -639,96 +947,74 @@ function calculateKneeAngle(hip, knee, ankle) {
     }
 
 
+
     // ==================================================
     // ⑤ 着地の安定
-    //
-    // ★今回の重要な修正
-    //
-    // phase.js が「着地なし」と判定した場合は
-    // 左右足首Y差が小さくても着地点を与えない。
-    //
-    // これにより、
-    //
-    // 「跳び箱の上に座って動画終了」
-    //
-    // のような動画を着地2点にしない。
     // ==================================================
-
-    const hasLanding =
-        Number.isFinite(
-            Number(phase.landing)
-        ) &&
-        Number(phase.landing) >= 0;
-
 
     const landingValues = [];
 
 
-    if (
-        hasLanding &&
-        landingIndex >= 0
+    const landingStart =
+        Math.max(
+            0,
+            landingIndex - 6
+        );
+
+
+    const landingEnd =
+        Math.min(
+            data.length - 1,
+            landingIndex + 6
+        );
+
+
+    for (
+        let i = landingStart;
+        i <= landingEnd;
+        i++
     ) {
 
-        const landingStart =
-            Math.max(
-                0,
-                landingIndex - 6
+        const left =
+            getPoint(
+                data[i],
+                27
             );
 
 
-        const landingEnd =
-            Math.min(
-                data.length - 1,
-                landingIndex + 6
+        const right =
+            getPoint(
+                data[i],
+                28
             );
 
 
-        for (
-            let i = landingStart;
-            i <= landingEnd;
-            i++
+        if (
+            !left ||
+            !right
         ) {
 
-            const left =
-                getPoint(
-                    data[i],
-                    27
-                );
+            continue;
+
+        }
 
 
-            const right =
-                getPoint(
-                    data[i],
-                    28
-                );
+        const difference =
+            Math.abs(
+                left.y -
+                right.y
+            );
 
 
-            if (
-                !left ||
-                !right
-            ) {
-                continue;
-            }
+        if (
+            Number.isFinite(
+                difference
+            )
+        ) {
 
-
-            const difference =
-                Math.abs(
-                    left.y -
-                    right.y
-                );
-
-
-            if (
-                Number.isFinite(
-                    difference
-                )
-            ) {
-
-                landingValues.push(
-                    difference
-                );
-
-            }
+            landingValues.push(
+                difference
+            );
 
         }
 
@@ -738,7 +1024,8 @@ function calculateKneeAngle(hip, knee, ankle) {
     const landingDifference =
         landingValues.length > 0
             ? landingValues.reduce(
-                (a, b) => a + b,
+                (a, b) =>
+                    a + b,
                 0
             ) /
             landingValues.length
@@ -750,21 +1037,19 @@ function calculateKneeAngle(hip, knee, ankle) {
 
 
     // --------------------------------------------------
-    // 着地なし
+    // 着地データが存在しない場合
     // --------------------------------------------------
 
-    if (!hasLanding) {
+    if (
+        landingValues.length === 0
+    ) {
 
         landingScore = 0;
 
         landingText =
-            "着地が確認できませんでした。床まで着地する動作を確認しましょう。";
+            "着地を確認できませんでした。最後まで着地する動作を行いましょう。";
 
     }
-
-    // --------------------------------------------------
-    // 着地あり＋安定
-    // --------------------------------------------------
 
     else if (
         landingDifference < 0.05
@@ -777,10 +1062,6 @@ function calculateKneeAngle(hip, knee, ankle) {
 
     }
 
-    // --------------------------------------------------
-    // 着地あり＋やや不安定
-    // --------------------------------------------------
-
     else if (
         landingDifference < 0.1
     ) {
@@ -792,10 +1073,6 @@ function calculateKneeAngle(hip, knee, ankle) {
 
     }
 
-    // --------------------------------------------------
-    // 着地あり＋不安定
-    // --------------------------------------------------
-
     else {
 
         landingScore = 0;
@@ -804,6 +1081,7 @@ function calculateKneeAngle(hip, knee, ankle) {
             "着地では両足を安定させることを意識しましょう。";
 
     }
+
 
 
     // ==================================================
@@ -818,27 +1096,32 @@ function calculateKneeAngle(hip, knee, ankle) {
         landingScore;
 
 
+
     // ==================================================
     // 結果
     // ==================================================
 
     const result = {
 
-        score: total,
+        score:
+            total,
 
         details: {
 
-            // --------------------------
+            // ==========================================
             // 膝
-            // --------------------------
+            // ==========================================
 
             knee: {
 
-                score: kneeScore,
+                score:
+                    kneeScore,
 
-                text: kneeText,
+                text:
+                    kneeText,
 
-                value: kneeAngle,
+                value:
+                    kneeAngle,
 
                 measured:
                     kneeAngle.toFixed(1) +
@@ -847,17 +1130,20 @@ function calculateKneeAngle(hip, knee, ankle) {
             },
 
 
-            // --------------------------
+            // ==========================================
             // 腰
-            // --------------------------
+            // ==========================================
 
             hip: {
 
-                score: hipScore,
+                score:
+                    hipScore,
 
-                text: hipText,
+                text:
+                    hipText,
 
-                value: hipRise,
+                value:
+                    hipRise,
 
                 measured:
                     hipRise.toFixed(3),
@@ -877,17 +1163,20 @@ function calculateKneeAngle(hip, knee, ankle) {
             },
 
 
-            // --------------------------
+            // ==========================================
             // 着手
-            // --------------------------
+            // ==========================================
 
             hand: {
 
-                score: handScore,
+                score:
+                    handScore,
 
-                text: handText,
+                text:
+                    handText,
 
-                value: handPosition,
+                value:
+                    handPosition,
 
                 measured:
                     handPosition.toFixed(3),
@@ -898,17 +1187,20 @@ function calculateKneeAngle(hip, knee, ankle) {
             },
 
 
-            // --------------------------
+            // ==========================================
             // 踏切
-            // --------------------------
+            // ==========================================
 
             takeOff: {
 
-                score: takeOffScore,
+                score:
+                    takeOffScore,
 
-                text: takeOffText,
+                text:
+                    takeOffText,
 
-                value: footDifference,
+                value:
+                    footDifference,
 
                 measured:
                     footDifference.toFixed(3),
@@ -919,25 +1211,23 @@ function calculateKneeAngle(hip, knee, ankle) {
             },
 
 
-            // --------------------------
+            // ==========================================
             // 着地
-            // --------------------------
+            // ==========================================
 
             landing: {
 
-                score: landingScore,
+                score:
+                    landingScore,
 
-                text: landingText,
+                text:
+                    landingText,
 
                 value:
-                    hasLanding
-                        ? landingDifference
-                        : 0,
+                    landingDifference,
 
                 measured:
-                    hasLanding
-                        ? landingDifference.toFixed(3)
-                        : "着地なし",
+                    landingDifference.toFixed(3),
 
                 unit:
                     "左右足首Y差"
@@ -949,12 +1239,19 @@ function calculateKneeAngle(hip, knee, ankle) {
     };
 
 
+
     // ==================================================
-    // コンソール
+    // デバッグ
     // ==================================================
 
     console.log(
-        "========== Ver5.8 SCORE =========="
+        "========== Ver5.9 SCORE =========="
+    );
+
+
+    console.log(
+        "フレーム数:",
+        data.length
     );
 
 
@@ -963,7 +1260,8 @@ function calculateKneeAngle(hip, knee, ankle) {
         kneeScore,
         "角度:",
         kneeAngle.toFixed(1),
-        "°"
+        "候補数:",
+        kneeValues.length
     );
 
 
@@ -995,9 +1293,9 @@ function calculateKneeAngle(hip, knee, ankle) {
         "着地:",
         landingScore,
         "実測値:",
-        hasLanding
-            ? landingDifference.toFixed(3)
-            : "着地なし"
+        landingDifference.toFixed(3),
+        "候補数:",
+        landingValues.length
     );
 
 
@@ -1007,17 +1305,21 @@ function calculateKneeAngle(hip, knee, ankle) {
     );
 
 
+
     return result;
+
 }
 
 
-// ===============================
+
+// ==================================================
 // 公開
-// ===============================
+// ==================================================
 
 window.calculateDScore =
     calculateDScore;
 
+
 console.log(
-    "score.js Ver5.8 読み込み成功"
+    "score.js Ver5.9 読み込み成功"
 );
