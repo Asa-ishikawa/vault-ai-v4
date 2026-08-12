@@ -1,192 +1,77 @@
-// ============================================================
+// ===============================
 // 跳び箱AI採点システム
-// score.js Ver6.0
-// 一発貼り付け完成版
-//
-// ・膝角度候補を保存
-// ・「データなし」になりにくい安全処理
-// ・腰の位置
-// ・着手位置
-// ・両足踏切
-// ・着地安定
-// ・実測値表示
-// ============================================================
-
+// score.js Ver5.8
+// 着手位置判定 改善版
+// ===============================
 
 function calculateDScore(frames, phase) {
 
-    // ========================================================
-    // ① 基本チェック
-    // ========================================================
+    // ==================================================
+    // データチェック
+    // ==================================================
 
     if (
         !Array.isArray(frames) ||
-        frames.length < 10
+        frames.length < 20 ||
+        !phase
     ) {
-
-        console.warn(
-            "score.js：フレームデータ不足",
-            frames
-        );
-
         return {
             score: 0,
             details: {}
         };
-
     }
 
 
-    // ========================================================
-    // ② phase がなくても採点できるようにする
-    // ========================================================
+    // ==================================================
+    // フレームデータ準備
+    // ==================================================
 
-    if (!phase) {
-
-        console.warn(
-            "score.js：phaseデータなし"
-        );
-
-        phase = {
-
-            takeOff: 0,
-
-            handContact:
-                Math.floor(frames.length * 0.35),
-
-            highestHip:
-                Math.floor(frames.length * 0.55),
-
-            landing:
-                frames.length - 1
-
-        };
-
-    }
-
-
-    // ========================================================
-    // ③ フレームデータを準備
-    // ========================================================
-
-    let data = null;
-
-
-    try {
-
-        if (
-            typeof prepareFrames ===
-            "function"
-        ) {
-
-            data =
-                prepareFrames(frames);
-
-        }
-        else {
-
-            data = frames;
-
-        }
-
-    }
-    catch (error) {
-
-        console.error(
-            "prepareFramesエラー:",
-            error
-        );
-
-        data = frames;
-
-    }
+    const data =
+        prepareFrames(frames);
 
 
     if (
-        !Array.isArray(data) ||
-        data.length < 10
+        !data ||
+        data.length < 20
     ) {
-
-        console.warn(
-            "score.js：使用可能なフレームがありません"
-        );
-
         return {
             score: 0,
             details: {}
         };
-
     }
 
 
-    // ========================================================
-    // ④ フレーム検索
-    // ========================================================
+    // ==================================================
+    // フレーム検索
+    // ==================================================
 
     function findFrame(frameNumber) {
 
-        const target =
-            Number(frameNumber);
-
-
-        if (
-            !Number.isFinite(target)
-        ) {
-
-            return 0;
-
-        }
-
-
         let bestIndex = 0;
+        let bestDifference = Infinity;
 
-        let bestDifference =
-            Infinity;
+        data.forEach((frame, index) => {
 
+            const difference =
+                Math.abs(
+                    Number(frame.frame) -
+                    Number(frameNumber)
+                );
 
-        data.forEach(
-            (frame, index) => {
+            if (
+                difference <
+                bestDifference
+            ) {
 
-                const frameNo =
-                    Number(
-                        frame.frame
-                    );
+                bestDifference =
+                    difference;
 
-
-                if (
-                    !Number.isFinite(
-                        frameNo
-                    )
-                ) {
-
-                    return;
-
-                }
-
-
-                const difference =
-                    Math.abs(
-                        frameNo -
-                        target
-                    );
-
-
-                if (
-                    difference <
-                    bestDifference
-                ) {
-
-                    bestDifference =
-                        difference;
-
-                    bestIndex =
-                        index;
-
-                }
+                bestIndex =
+                    index;
 
             }
-        );
 
+        });
 
         return bestIndex;
 
@@ -194,52 +79,40 @@ function calculateDScore(frames, phase) {
 
 
     const takeOffIndex =
-        findFrame(
-            phase.takeOff
-        );
+        findFrame(phase.takeOff);
 
 
     const handIndex =
-        findFrame(
-            phase.handContact
-        );
+        findFrame(phase.handContact);
 
 
     const hipIndex =
-        findFrame(
-            phase.highestHip
-        );
+        findFrame(phase.highestHip);
 
 
     const landingIndex =
-        findFrame(
-            phase.landing
-        );
+        findFrame(phase.landing);
 
 
 
-    // ========================================================
+    // ==================================================
     // ① 膝の伸び
-    // ========================================================
+    // ==================================================
 
     const kneeValues = [];
 
 
-    // 膝を調べる範囲
     const kneeStart =
         Math.max(
-            0,
-            Math.min(
-                handIndex,
-                hipIndex - 10
-            )
+            handIndex,
+            hipIndex - 6
         );
 
 
     const kneeEnd =
         Math.min(
             data.length - 1,
-            hipIndex + 10
+            hipIndex + 6
         );
 
 
@@ -249,41 +122,19 @@ function calculateDScore(frames, phase) {
         i++
     ) {
 
-        try {
-
-            if (
-                typeof getAverageKneeAngle ===
-                "function"
-            ) {
-
-                const angle =
-                    Number(
-                        getAverageKneeAngle(
-                            data[i]
-                        )
-                    );
+        const angle =
+            getAverageKneeAngle(
+                data[i]
+            );
 
 
-                if (
-                    Number.isFinite(angle) &&
-                    angle > 0 &&
-                    angle <= 180
-                ) {
+        if (
+            Number.isFinite(angle) &&
+            angle > 0
+        ) {
 
-                    kneeValues.push(
-                        angle
-                    );
-
-                }
-
-            }
-
-        }
-        catch (error) {
-
-            console.warn(
-                "膝角度取得エラー:",
-                error
+            kneeValues.push(
+                angle
             );
 
         }
@@ -291,65 +142,21 @@ function calculateDScore(frames, phase) {
     }
 
 
-
-    // ========================================================
-    // 膝角度候補を保存
-    // ========================================================
-
-    const kneeCandidates =
-        kneeValues.map(
-            value =>
-                Number(
-                    value.toFixed(1)
-                )
-        );
-
-
-    console.log(
-        "【膝検証】kneeCandidates:",
-        kneeCandidates
-    );
-
-
-
-    // ========================================================
-    // 膝角度
-    // ========================================================
-
-    let kneeAngle = 0;
-
-
-    if (
+    const kneeAngle =
         kneeValues.length > 0
-    ) {
-
-        kneeAngle =
-            kneeValues.reduce(
+            ? kneeValues.reduce(
                 (a, b) => a + b,
                 0
             ) /
-            kneeValues.length;
+            kneeValues.length
+            : 0;
 
-    }
-
-
-
-    // ========================================================
-    // 膝評価
-    //
-    // 165°以上 → 2点
-    // 150°以上 → 1点
-    // 150°未満 → 0点
-    // ========================================================
 
     let kneeScore = 0;
-
     let kneeText = "";
 
 
-    if (
-        kneeAngle >= 165
-    ) {
+    if (kneeAngle >= 165) {
 
         kneeScore = 2;
 
@@ -358,9 +165,7 @@ function calculateDScore(frames, phase) {
 
     }
 
-    else if (
-        kneeAngle >= 150
-    ) {
+    else if (kneeAngle >= 150) {
 
         kneeScore = 1;
 
@@ -380,9 +185,9 @@ function calculateDScore(frames, phase) {
 
 
 
-    // ========================================================
+    // ==================================================
     // ② 腰の位置
-    // ========================================================
+    // ==================================================
 
     const takeOffFrame =
         data[takeOffIndex];
@@ -392,92 +197,33 @@ function calculateDScore(frames, phase) {
         data[hipIndex];
 
 
-    let takeOffHip = null;
-
-    let peakHip = null;
-
-
-    try {
-
-        if (
-            typeof getHipCenter ===
-            "function"
-        ) {
-
-            takeOffHip =
-                getHipCenter(
-                    takeOffFrame
-                );
-
-
-            peakHip =
-                getHipCenter(
-                    peakFrame
-                );
-
-        }
-
-    }
-    catch (error) {
-
-        console.warn(
-            "腰位置取得エラー:",
-            error
+    const takeOffHip =
+        getHipCenter(
+            takeOffFrame
         );
 
-    }
 
-
-
-    // ========================================================
-    // 体格スケール
-    // ========================================================
-
-    let bodyScale = 0.3;
-
-
-    try {
-
-        if (
-            typeof getBodyScale ===
-            "function"
-        ) {
-
-            const scale =
-                Number(
-                    getBodyScale(
-                        peakFrame
-                    )
-                );
-
-
-            if (
-                Number.isFinite(scale) &&
-                scale > 0
-            ) {
-
-                bodyScale =
-                    scale;
-
-            }
-
-        }
-
-    }
-    catch (error) {
-
-        console.warn(
-            "bodyScale取得エラー:",
-            error
+    const peakHip =
+        getHipCenter(
+            peakFrame
         );
 
+
+    let bodyScale =
+        getBodyScale(
+            peakFrame
+        );
+
+
+    if (
+        !Number.isFinite(bodyScale) ||
+        bodyScale <= 0
+    ) {
+
+        bodyScale = 0.3;
+
     }
 
-
-
-    // ========================================================
-    // 腰上昇量
-    // ========================================================
 
     let hipRise = 0;
 
@@ -497,25 +243,20 @@ function calculateDScore(frames, phase) {
     }
 
 
-
-    // ========================================================
-    // 最高点周辺を確認
-    // ========================================================
-
     const peakHipValues = [];
 
 
     const peakStart =
         Math.max(
-            0,
-            handIndex - 2
+            handIndex,
+            hipIndex - 5
         );
 
 
     const peakEnd =
         Math.min(
             data.length - 1,
-            hipIndex + 8
+            hipIndex + 5
         );
 
 
@@ -525,54 +266,43 @@ function calculateDScore(frames, phase) {
         i++
     ) {
 
-        try {
-
-            const hip =
-                getHipCenter(
-                    data[i]
-                );
+        const hip =
+            getHipCenter(
+                data[i]
+            );
 
 
-            const scale =
-                getBodyScale(
-                    data[i]
-                );
+        const scale =
+            getBodyScale(
+                data[i]
+            );
 
 
-            if (
-                !hip ||
-                !Number.isFinite(scale) ||
-                scale <= 0 ||
-                !takeOffHip
-            ) {
-
-                continue;
-
-            }
-
-
-            const rise =
-                (
-                    takeOffHip.y -
-                    hip.y
-                ) /
-                scale;
-
-
-            if (
-                Number.isFinite(rise)
-            ) {
-
-                peakHipValues.push(
-                    rise
-                );
-
-            }
-
-        }
-        catch (error) {
-
+        if (
+            !hip ||
+            !Number.isFinite(scale) ||
+            scale <= 0
+        ) {
             continue;
+        }
+
+
+        const rise =
+            (
+                takeOffHip
+                    ? takeOffHip.y - hip.y
+                    : 0
+            ) /
+            scale;
+
+
+        if (
+            Number.isFinite(rise)
+        ) {
+
+            peakHipValues.push(
+                rise
+            );
 
         }
 
@@ -591,13 +321,7 @@ function calculateDScore(frames, phase) {
     }
 
 
-
-    // ========================================================
-    // 腰評価
-    // ========================================================
-
     let hipScore = 0;
-
     let hipText = "";
 
 
@@ -634,17 +358,34 @@ function calculateDScore(frames, phase) {
 
 
 
-    // ========================================================
+    // ==================================================
     // ③ 着手位置
-    // ========================================================
+    //
+    // Ver5.8 改善版
+    //
+    // 旧方式：
+    // 最大値を採用
+    //
+    // 問題：
+    // 失敗動画で一瞬だけ大きな値が出ると
+    // 「着手が良い」と誤判定する。
+    //
+    // 新方式：
+    // 着手前後の複数フレームを取得し、
+    // 中央値を採用する。
+    //
+    // また、極端に大きい値を
+    // 「適切な着手」と判定しない。
+    // ==================================================
 
     const handValues = [];
 
 
+    // 着手の前後8フレームを確認
     const handStart =
         Math.max(
-            0,
-            takeOffIndex
+            takeOffIndex,
+            handIndex - 8
         );
 
 
@@ -661,99 +402,159 @@ function calculateDScore(frames, phase) {
         i++
     ) {
 
-        try {
-
-            const left =
-                getPoint(
-                    data[i],
-                    15
-                );
+        const left =
+            getPoint(
+                data[i],
+                15
+            );
 
 
-            const right =
-                getPoint(
-                    data[i],
-                    16
-                );
+        const right =
+            getPoint(
+                data[i],
+                16
+            );
 
 
-            const hip =
-                getHipCenter(
-                    data[i]
-                );
+        const hip =
+            getHipCenter(
+                data[i]
+            );
 
 
-            const scale =
-                getBodyScale(
-                    data[i]
-                );
+        const scale =
+            getBodyScale(
+                data[i]
+            );
 
 
-            if (
-                !left ||
-                !right ||
-                !hip ||
-                !Number.isFinite(scale) ||
-                scale <= 0
-            ) {
-
-                continue;
-
-            }
-
-
-            const handX =
-                (
-                    left.x +
-                    right.x
-                ) / 2;
-
-
-            const normalized =
-                Math.abs(
-                    handX -
-                    hip.x
-                ) /
-                scale;
-
-
-            if (
-                Number.isFinite(
-                    normalized
-                )
-            ) {
-
-                handValues.push(
-                    normalized
-                );
-
-            }
-
-        }
-        catch (error) {
-
+        if (
+            !left ||
+            !right ||
+            !hip ||
+            !Number.isFinite(scale) ||
+            scale <= 0
+        ) {
             continue;
+        }
+
+
+        const handX =
+            (
+                left.x +
+                right.x
+            ) /
+            2;
+
+
+        const normalized =
+            Math.abs(
+                handX -
+                hip.x
+            ) /
+            scale;
+
+
+        if (
+            Number.isFinite(normalized) &&
+            normalized >= 0
+        ) {
+
+            handValues.push(
+                normalized
+            );
 
         }
 
     }
 
 
-    const handPosition =
-        handValues.length > 0
-            ? Math.max(
-                ...handValues
-            )
-            : 0;
 
+    // ==================================================
+    // 中央値を求める
+    // ==================================================
+
+    let handPosition = 0;
+
+
+    if (
+        handValues.length > 0
+    ) {
+
+        const sorted =
+            [...handValues]
+                .sort(
+                    (a, b) => a - b
+                );
+
+
+        const middle =
+            Math.floor(
+                sorted.length / 2
+            );
+
+
+        if (
+            sorted.length % 2 === 0
+        ) {
+
+            handPosition =
+                (
+                    sorted[middle - 1] +
+                    sorted[middle]
+                ) /
+                2;
+
+        }
+
+        else {
+
+            handPosition =
+                sorted[middle];
+
+        }
+
+    }
+
+
+
+    // ==================================================
+    // 着手位置評価
+    //
+    // 新しい基準
+    //
+    // 0点：
+    // 0.55未満
+    //
+    // 1点：
+    // 0.55以上 かつ 1.25未満
+    //
+    // 2点：
+    // 0.80以上 かつ 1.25未満
+    //
+    // 1.25以上：
+    // 手を出しすぎている可能性があるため0点
+    //
+    // ※極端な値を高評価しない
+    // ==================================================
 
     let handScore = 0;
-
     let handText = "";
 
 
     if (
-        handPosition >= 1.0
+        handPosition >= 1.25
+    ) {
+
+        handScore = 0;
+
+        handText =
+            "手を前に出しすぎている可能性があります。跳び箱に対して適切な位置へ手をつきましょう。";
+
+    }
+
+    else if (
+        handPosition >= 0.80
     ) {
 
         handScore = 2;
@@ -785,9 +586,9 @@ function calculateDScore(frames, phase) {
 
 
 
-    // ========================================================
+    // ==================================================
     // ④ 両足踏切
-    // ========================================================
+    // ==================================================
 
     const footValues = [];
 
@@ -812,55 +613,44 @@ function calculateDScore(frames, phase) {
         i++
     ) {
 
-        try {
-
-            const left =
-                getPoint(
-                    data[i],
-                    27
-                );
+        const left =
+            getPoint(
+                data[i],
+                27
+            );
 
 
-            const right =
-                getPoint(
-                    data[i],
-                    28
-                );
+        const right =
+            getPoint(
+                data[i],
+                28
+            );
 
 
-            if (
-                !left ||
-                !right
-            ) {
-
-                continue;
-
-            }
-
-
-            const difference =
-                Math.abs(
-                    left.y -
-                    right.y
-                );
-
-
-            if (
-                Number.isFinite(
-                    difference
-                )
-            ) {
-
-                footValues.push(
-                    difference
-                );
-
-            }
-
-        }
-        catch (error) {
-
+        if (
+            !left ||
+            !right
+        ) {
             continue;
+        }
+
+
+        const difference =
+            Math.abs(
+                left.y -
+                right.y
+            );
+
+
+        if (
+            Number.isFinite(
+                difference
+            )
+        ) {
+
+            footValues.push(
+                difference
+            );
 
         }
 
@@ -878,7 +668,6 @@ function calculateDScore(frames, phase) {
 
 
     let takeOffScore = 0;
-
     let takeOffText = "";
 
 
@@ -915,9 +704,9 @@ function calculateDScore(frames, phase) {
 
 
 
-    // ========================================================
-    // ⑤ 着地
-    // ========================================================
+    // ==================================================
+    // ⑤ 着地の安定
+    // ==================================================
 
     const landingValues = [];
 
@@ -942,55 +731,44 @@ function calculateDScore(frames, phase) {
         i++
     ) {
 
-        try {
-
-            const left =
-                getPoint(
-                    data[i],
-                    27
-                );
+        const left =
+            getPoint(
+                data[i],
+                27
+            );
 
 
-            const right =
-                getPoint(
-                    data[i],
-                    28
-                );
+        const right =
+            getPoint(
+                data[i],
+                28
+            );
 
 
-            if (
-                !left ||
-                !right
-            ) {
-
-                continue;
-
-            }
-
-
-            const difference =
-                Math.abs(
-                    left.y -
-                    right.y
-                );
-
-
-            if (
-                Number.isFinite(
-                    difference
-                )
-            ) {
-
-                landingValues.push(
-                    difference
-                );
-
-            }
-
-        }
-        catch (error) {
-
+        if (
+            !left ||
+            !right
+        ) {
             continue;
+        }
+
+
+        const difference =
+            Math.abs(
+                left.y -
+                right.y
+            );
+
+
+        if (
+            Number.isFinite(
+                difference
+            )
+        ) {
+
+            landingValues.push(
+                difference
+            );
 
         }
 
@@ -1008,7 +786,6 @@ function calculateDScore(frames, phase) {
 
 
     let landingScore = 0;
-
     let landingText = "";
 
 
@@ -1045,9 +822,9 @@ function calculateDScore(frames, phase) {
 
 
 
-    // ========================================================
+    // ==================================================
     // 合計
-    // ========================================================
+    // ==================================================
 
     const total =
         kneeScore +
@@ -1058,9 +835,9 @@ function calculateDScore(frames, phase) {
 
 
 
-    // ========================================================
+    // ==================================================
     // 結果
-    // ========================================================
+    // ==================================================
 
     const result = {
 
@@ -1068,48 +845,28 @@ function calculateDScore(frames, phase) {
 
         details: {
 
-            // ----------------------------
-            // 膝
-            // ----------------------------
-
             knee: {
 
-                score:
-                    kneeScore,
+                score: kneeScore,
 
-                text:
-                    kneeText,
+                text: kneeText,
 
-                value:
-                    kneeAngle,
+                value: kneeAngle,
 
                 measured:
                     kneeAngle.toFixed(1) +
-                    "°",
-
-                candidates:
-                    kneeCandidates,
-
-                candidateCount:
-                    kneeCandidates.length
+                    "°"
 
             },
 
 
-            // ----------------------------
-            // 腰
-            // ----------------------------
-
             hip: {
 
-                score:
-                    hipScore,
+                score: hipScore,
 
-                text:
-                    hipText,
+                text: hipText,
 
-                value:
-                    hipRise,
+                value: hipRise,
 
                 measured:
                     hipRise.toFixed(3),
@@ -1129,20 +886,13 @@ function calculateDScore(frames, phase) {
             },
 
 
-            // ----------------------------
-            // 着手
-            // ----------------------------
-
             hand: {
 
-                score:
-                    handScore,
+                score: handScore,
 
-                text:
-                    handText,
+                text: handText,
 
-                value:
-                    handPosition,
+                value: handPosition,
 
                 measured:
                     handPosition.toFixed(3),
@@ -1153,20 +903,13 @@ function calculateDScore(frames, phase) {
             },
 
 
-            // ----------------------------
-            // 踏切
-            // ----------------------------
-
             takeOff: {
 
-                score:
-                    takeOffScore,
+                score: takeOffScore,
 
-                text:
-                    takeOffText,
+                text: takeOffText,
 
-                value:
-                    footDifference,
+                value: footDifference,
 
                 measured:
                     footDifference.toFixed(3),
@@ -1177,20 +920,13 @@ function calculateDScore(frames, phase) {
             },
 
 
-            // ----------------------------
-            // 着地
-            // ----------------------------
-
             landing: {
 
-                score:
-                    landingScore,
+                score: landingScore,
 
-                text:
-                    landingText,
+                text: landingText,
 
-                value:
-                    landingDifference,
+                value: landingDifference,
 
                 measured:
                     landingDifference.toFixed(3),
@@ -1206,72 +942,67 @@ function calculateDScore(frames, phase) {
 
 
 
-    // ========================================================
+    // ==================================================
     // デバッグ
-    // ========================================================
+    // ==================================================
 
     console.log(
-        "================================"
+        "========== Ver5.8 SCORE =========="
     );
 
-    console.log(
-        "跳び箱AI採点 Ver6.0"
-    );
-
-    console.log(
-        "フレーム数:",
-        data.length
-    );
-
-    console.log(
-        "膝候補数:",
-        kneeCandidates.length
-    );
-
-    console.log(
-        "膝候補:",
-        kneeCandidates
-    );
 
     console.log(
         "膝:",
         kneeScore,
-        kneeAngle.toFixed(1) + "°"
+        "実測値:",
+        kneeAngle.toFixed(1)
     );
+
 
     console.log(
         "腰:",
         hipScore,
+        "実測値:",
         hipRise.toFixed(3)
     );
+
+
+    console.log(
+        "着手候補値:",
+        handValues.map(
+            v => v.toFixed(3)
+        )
+    );
+
 
     console.log(
         "着手:",
         handScore,
+        "中央値:",
         handPosition.toFixed(3)
     );
+
 
     console.log(
         "踏切:",
         takeOffScore,
+        "実測値:",
         footDifference.toFixed(3)
     );
+
 
     console.log(
         "着地:",
         landingScore,
+        "実測値:",
         landingDifference.toFixed(3)
     );
+
 
     console.log(
         "Dスコア:",
         total
     );
-
-    console.log(
-        "================================"
-    );
-
 
 
     return result;
@@ -1280,14 +1011,14 @@ function calculateDScore(frames, phase) {
 
 
 
-// ============================================================
-// グローバル公開
-// ============================================================
+// ===============================
+// 公開
+// ===============================
 
 window.calculateDScore =
     calculateDScore;
 
 
 console.log(
-    "score.js Ver6.0 読み込み成功"
+    "score.js Ver5.8 読み込み成功"
 );
