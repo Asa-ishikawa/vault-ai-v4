@@ -1,13 +1,13 @@
-// ===============================
+// ==================================================
 // 跳び箱AI採点システム
-// score.js Ver5.8
-// 着手位置判定 改善版
-// ===============================
+// score.js Ver5.9
+// 着手位置・全項目統合版
+// ==================================================
 
 function calculateDScore(frames, phase) {
 
     // ==================================================
-    // データチェック
+    // データ確認
     // ==================================================
 
     if (
@@ -26,8 +26,7 @@ function calculateDScore(frames, phase) {
     // フレームデータ準備
     // ==================================================
 
-    const data =
-        prepareFrames(frames);
+    const data = prepareFrames(frames);
 
 
     if (
@@ -68,13 +67,11 @@ function calculateDScore(frames, phase) {
 
                 bestIndex =
                     index;
-
             }
 
         });
 
         return bestIndex;
-
     }
 
 
@@ -209,6 +206,10 @@ function calculateDScore(frames, phase) {
         );
 
 
+    // ==================================================
+    // 体格による正規化
+    // ==================================================
+
     let bodyScale =
         getBodyScale(
             peakFrame
@@ -224,6 +225,10 @@ function calculateDScore(frames, phase) {
 
     }
 
+
+    // ==================================================
+    // 腰の上昇量
+    // ==================================================
 
     let hipRise = 0;
 
@@ -242,6 +247,10 @@ function calculateDScore(frames, phase) {
 
     }
 
+
+    // ==================================================
+    // 最高点付近を確認
+    // ==================================================
 
     const peakHipValues = [];
 
@@ -321,6 +330,10 @@ function calculateDScore(frames, phase) {
     }
 
 
+    // ==================================================
+    // 腰の評価
+    // ==================================================
+
     let hipScore = 0;
     let hipText = "";
 
@@ -361,38 +374,35 @@ function calculateDScore(frames, phase) {
     // ==================================================
     // ③ 着手位置
     //
-    // Ver5.8 改善版
+    // Ver5.9 改善版
     //
-    // 旧方式：
-    // 最大値を採用
+    // 「遠いほど高得点」ではなく、
+    // 適正範囲を中心に評価する。
     //
-    // 問題：
-    // 失敗動画で一瞬だけ大きな値が出ると
-    // 「着手が良い」と誤判定する。
+    // handPosition
+    // = 着手時の手と腰の水平距離 ÷ 体格
     //
-    // 新方式：
-    // 着手前後の複数フレームを取得し、
-    // 中央値を採用する。
+    // 今回の検証：
+    // 普通：約0.000
+    // 失敗：約1.427
     //
-    // また、極端に大きい値を
-    // 「適切な着手」と判定しない。
+    // そのため極端な値を2点にしない。
     // ==================================================
 
     const handValues = [];
 
 
-    // 着手の前後8フレームを確認
     const handStart =
         Math.max(
             takeOffIndex,
-            handIndex - 8
+            handIndex - 5
         );
 
 
     const handEnd =
         Math.min(
             data.length - 1,
-            handIndex + 8
+            handIndex + 5
         );
 
 
@@ -456,8 +466,9 @@ function calculateDScore(frames, phase) {
 
 
         if (
-            Number.isFinite(normalized) &&
-            normalized >= 0
+            Number.isFinite(
+                normalized
+            )
         ) {
 
             handValues.push(
@@ -469,9 +480,11 @@ function calculateDScore(frames, phase) {
     }
 
 
-
     // ==================================================
-    // 中央値を求める
+    // 着手位置の代表値
+    //
+    // 最大値ではなく中央値を使用
+    // 一瞬の骨格誤認識の影響を減らす
     // ==================================================
 
     let handPosition = 0;
@@ -481,27 +494,26 @@ function calculateDScore(frames, phase) {
         handValues.length > 0
     ) {
 
-        const sorted =
-            [...handValues]
-                .sort(
-                    (a, b) => a - b
-                );
+        const sortedHands =
+            [...handValues].sort(
+                (a, b) => a - b
+            );
 
 
         const middle =
             Math.floor(
-                sorted.length / 2
+                sortedHands.length / 2
             );
 
 
         if (
-            sorted.length % 2 === 0
+            sortedHands.length % 2 === 0
         ) {
 
             handPosition =
                 (
-                    sorted[middle - 1] +
-                    sorted[middle]
+                    sortedHands[middle - 1] +
+                    sortedHands[middle]
                 ) /
                 2;
 
@@ -510,68 +522,55 @@ function calculateDScore(frames, phase) {
         else {
 
             handPosition =
-                sorted[middle];
+                sortedHands[middle];
 
         }
 
     }
 
 
-
-    // ==================================================
-    // 着手位置評価
-    //
-    // 新しい基準
-    //
-    // 0点：
-    // 0.55未満
-    //
-    // 1点：
-    // 0.55以上 かつ 1.25未満
-    //
-    // 2点：
-    // 0.80以上 かつ 1.25未満
-    //
-    // 1.25以上：
-    // 手を出しすぎている可能性があるため0点
-    //
-    // ※極端な値を高評価しない
-    // ==================================================
-
     let handScore = 0;
     let handText = "";
 
 
+    // ==================================================
+    // 着手位置評価
+    //
+    // 0.25～0.80 → 2点
+    // 0.10～0.25 → 1点
+    // 0.80～1.10 → 1点
+    // それ以外 → 0点
+    //
+    // ※今回の検証用の暫定基準
+    // ==================================================
+
     if (
-        handPosition >= 1.25
-    ) {
-
-        handScore = 0;
-
-        handText =
-            "手を前に出しすぎている可能性があります。跳び箱に対して適切な位置へ手をつきましょう。";
-
-    }
-
-    else if (
-        handPosition >= 0.80
+        handPosition >= 0.25 &&
+        handPosition <= 0.80
     ) {
 
         handScore = 2;
 
         handText =
-            "着手位置が安定しています。";
+            "着手位置が適切です。安定した位置に手をつけています。";
 
     }
 
     else if (
-        handPosition >= 0.55
+        (
+            handPosition >= 0.10 &&
+            handPosition < 0.25
+        ) ||
+        (
+            handPosition > 0.80 &&
+            handPosition <= 1.10
+        )
     ) {
 
         handScore = 1;
 
         handText =
-            "着手できています。もう少し前方へ手をつくことを意識しましょう。";
+            "着手位置はおおむねできています。手をつく位置をさらに安定させましょう。";
 
     }
 
@@ -845,6 +844,8 @@ function calculateDScore(frames, phase) {
 
         details: {
 
+            // ① 膝
+
             knee: {
 
                 score: kneeScore,
@@ -859,6 +860,8 @@ function calculateDScore(frames, phase) {
 
             },
 
+
+            // ② 腰
 
             hip: {
 
@@ -886,6 +889,8 @@ function calculateDScore(frames, phase) {
             },
 
 
+            // ③ 着手
+
             hand: {
 
                 score: handScore,
@@ -903,6 +908,8 @@ function calculateDScore(frames, phase) {
             },
 
 
+            // ④ 踏切
+
             takeOff: {
 
                 score: takeOffScore,
@@ -919,6 +926,8 @@ function calculateDScore(frames, phase) {
 
             },
 
+
+            // ⑤ 着地
 
             landing: {
 
@@ -947,41 +956,35 @@ function calculateDScore(frames, phase) {
     // ==================================================
 
     console.log(
-        "========== Ver5.8 SCORE =========="
+        "========== Ver5.9 SCORE =========="
     );
-
 
     console.log(
         "膝:",
         kneeScore,
-        "実測値:",
-        kneeAngle.toFixed(1)
+        "角度:",
+        kneeAngle.toFixed(1),
+        "°"
     );
-
 
     console.log(
         "腰:",
         hipScore,
-        "実測値:",
+        "腰上昇量:",
         hipRise.toFixed(3)
     );
 
-
     console.log(
         "着手候補値:",
-        handValues.map(
-            v => v.toFixed(3)
-        )
+        handValues
     );
-
 
     console.log(
         "着手:",
         handScore,
-        "中央値:",
+        "代表実測値:",
         handPosition.toFixed(3)
     );
-
 
     console.log(
         "踏切:",
@@ -990,14 +993,12 @@ function calculateDScore(frames, phase) {
         footDifference.toFixed(3)
     );
 
-
     console.log(
         "着地:",
         landingScore,
         "実測値:",
         landingDifference.toFixed(3)
     );
-
 
     console.log(
         "Dスコア:",
@@ -1006,19 +1007,18 @@ function calculateDScore(frames, phase) {
 
 
     return result;
-
 }
 
 
 
-// ===============================
+// ==================================================
 // 公開
-// ===============================
+// ==================================================
 
 window.calculateDScore =
     calculateDScore;
 
 
 console.log(
-    "score.js Ver5.8 読み込み成功"
+    "score.js Ver5.9 読み込み成功"
 );
