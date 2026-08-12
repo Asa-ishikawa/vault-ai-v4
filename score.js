@@ -1,7 +1,7 @@
 // ==================================================
 // 跳び箱AI採点システム
-// score.js Ver5.9
-// 着手位置・全項目統合版
+// score.js Ver6.0
+// 着手位置・測定改善版
 // ==================================================
 
 function calculateDScore(frames, phase) {
@@ -374,74 +374,80 @@ function calculateDScore(frames, phase) {
     // ==================================================
     // ③ 着手位置
     //
-    // Ver5.9 改善版
+    // Ver6.0
     //
-    // 「遠いほど高得点」ではなく、
-    // 適正範囲を中心に評価する。
-    //
-    // handPosition
-    // = 着手時の手と腰の水平距離 ÷ 体格
-    //
-    // 今回の検証：
-    // 普通：約0.000
-    // 失敗：約1.427
-    //
-    // そのため極端な値を2点にしない。
+    // 着手フレーム前後15フレームを調査
+    // 「最大値」ではなく候補をすべて保存
+    // 実際に測定できた値を確認できるようにする
     // ==================================================
 
-    const handValues = [];
+    const handCandidates = [];
 
 
-    const handStart =
+    // --------------------------------------------------
+    // 着手フレーム前後15フレーム
+    // --------------------------------------------------
+
+    const handSearchStart =
         Math.max(
-            takeOffIndex,
-            handIndex - 5
+            0,
+            handIndex - 15
         );
 
 
-    const handEnd =
+    const handSearchEnd =
         Math.min(
             data.length - 1,
-            handIndex + 5
+            handIndex + 15
         );
 
 
     for (
-        let i = handStart;
-        i <= handEnd;
+        let i = handSearchStart;
+        i <= handSearchEnd;
         i++
     ) {
 
+        const frame =
+            data[i];
+
+
         const left =
             getPoint(
-                data[i],
+                frame,
                 15
             );
 
 
         const right =
             getPoint(
-                data[i],
+                frame,
                 16
             );
 
 
         const hip =
             getHipCenter(
-                data[i]
+                frame
             );
 
 
-        const scale =
+        let scale =
             getBodyScale(
-                data[i]
+                frame
             );
 
 
         if (
             !left ||
             !right ||
-            !hip ||
+            !hip
+        ) {
+            continue;
+        }
+
+
+        if (
             !Number.isFinite(scale) ||
             scale <= 0
         ) {
@@ -471,80 +477,218 @@ function calculateDScore(frames, phase) {
             )
         ) {
 
-            handValues.push(
-                normalized
-            );
+            handCandidates.push({
+
+                index: i,
+
+                frame:
+                    frame.frame,
+
+                value:
+                    normalized,
+
+                handX:
+                    handX,
+
+                hipX:
+                    hip.x
+
+            });
 
         }
 
     }
 
 
+
     // ==================================================
-    // 着手位置の代表値
-    //
-    // 最大値ではなく中央値を使用
-    // 一瞬の骨格誤認識の影響を減らす
+    // 着手候補を整理
     // ==================================================
 
     let handPosition = 0;
 
+    let handMeasurementStatus =
+        "データなし";
+
+    let selectedHandFrame = null;
+
 
     if (
-        handValues.length > 0
+        handCandidates.length > 0
     ) {
 
-        const sortedHands =
-            [...handValues].sort(
-                (a, b) => a - b
+        handMeasurementStatus =
+            "測定成功";
+
+
+        // --------------------------------------------------
+        // 候補値を小さい順に並べる
+        // --------------------------------------------------
+
+        const sortedCandidates =
+            [...handCandidates].sort(
+                (a, b) =>
+                    a.value -
+                    b.value
             );
 
 
-        const middle =
-            Math.floor(
-                sortedHands.length / 2
+        // --------------------------------------------------
+        // 着手フレームに最も近い候補を探す
+        // --------------------------------------------------
+
+        let nearestCandidate =
+            handCandidates[0];
+
+
+        let nearestDifference =
+            Math.abs(
+                nearestCandidate.index -
+                handIndex
+            );
+
+
+        handCandidates.forEach(
+            candidate => {
+
+                const difference =
+                    Math.abs(
+                        candidate.index -
+                        handIndex
+                    );
+
+
+                if (
+                    difference <
+                    nearestDifference
+                ) {
+
+                    nearestDifference =
+                        difference;
+
+                    nearestCandidate =
+                        candidate;
+
+                }
+
+            }
+        );
+
+
+        // --------------------------------------------------
+        // 着手フレーム付近の候補を優先
+        //
+        // ±3フレーム以内
+        // --------------------------------------------------
+
+        const nearCandidates =
+            handCandidates.filter(
+                candidate =>
+                    Math.abs(
+                        candidate.index -
+                        handIndex
+                    ) <= 3
             );
 
 
         if (
-            sortedHands.length % 2 === 0
+            nearCandidates.length > 0
         ) {
 
-            handPosition =
-                (
-                    sortedHands[middle - 1] +
-                    sortedHands[middle]
-                ) /
-                2;
+            // ------------------------------------------------
+            // 近傍候補の中央値
+            // ------------------------------------------------
+
+            const nearValues =
+                nearCandidates
+                    .map(
+                        candidate =>
+                            candidate.value
+                    )
+                    .sort(
+                        (a, b) =>
+                            a - b
+                    );
+
+
+            const middle =
+                Math.floor(
+                    nearValues.length / 2
+                );
+
+
+            if (
+                nearValues.length % 2 === 0
+            ) {
+
+                handPosition =
+                    (
+                        nearValues[middle - 1] +
+                        nearValues[middle]
+                    ) /
+                    2;
+
+            }
+
+            else {
+
+                handPosition =
+                    nearValues[middle];
+
+            }
+
+
+            // ------------------------------------------------
+            // 選択フレーム
+            // ------------------------------------------------
+
+            selectedHandFrame =
+                nearestCandidate.frame;
 
         }
 
         else {
 
             handPosition =
-                sortedHands[middle];
+                nearestCandidate.value;
+
+            selectedHandFrame =
+                nearestCandidate.frame;
 
         }
 
     }
 
 
-    let handScore = 0;
-    let handText = "";
-
 
     // ==================================================
     // 着手位置評価
     //
+    // 暫定基準
+    //
     // 0.25～0.80 → 2点
     // 0.10～0.25 → 1点
     // 0.80～1.10 → 1点
-    // それ以外 → 0点
-    //
-    // ※今回の検証用の暫定基準
+    // その他 → 0点
     // ==================================================
 
+    let handScore = 0;
+    let handText = "";
+
+
     if (
+        handMeasurementStatus ===
+        "データなし"
+    ) {
+
+        handScore = 0;
+
+        handText =
+            "着手位置のデータを取得できませんでした。";
+
+    }
+
+    else if (
         handPosition >= 0.25 &&
         handPosition <= 0.80
     ) {
@@ -844,15 +988,20 @@ function calculateDScore(frames, phase) {
 
         details: {
 
+            // ------------------------------------------------
             // ① 膝
+            // ------------------------------------------------
 
             knee: {
 
-                score: kneeScore,
+                score:
+                    kneeScore,
 
-                text: kneeText,
+                text:
+                    kneeText,
 
-                value: kneeAngle,
+                value:
+                    kneeAngle,
 
                 measured:
                     kneeAngle.toFixed(1) +
@@ -861,15 +1010,20 @@ function calculateDScore(frames, phase) {
             },
 
 
+            // ------------------------------------------------
             // ② 腰
+            // ------------------------------------------------
 
             hip: {
 
-                score: hipScore,
+                score:
+                    hipScore,
 
-                text: hipText,
+                text:
+                    hipText,
 
-                value: hipRise,
+                value:
+                    hipRise,
 
                 measured:
                     hipRise.toFixed(3),
@@ -889,34 +1043,66 @@ function calculateDScore(frames, phase) {
             },
 
 
+            // ------------------------------------------------
             // ③ 着手
+            // ------------------------------------------------
 
             hand: {
 
-                score: handScore,
+                score:
+                    handScore,
 
-                text: handText,
+                text:
+                    handText,
 
-                value: handPosition,
+                value:
+                    handPosition,
 
                 measured:
                     handPosition.toFixed(3),
 
                 unit:
-                    "体格比"
+                    "体格比",
+
+                status:
+                    handMeasurementStatus,
+
+                selectedFrame:
+                    selectedHandFrame,
+
+                candidateCount:
+                    handCandidates.length,
+
+                candidates:
+                    handCandidates.map(
+                        candidate => ({
+                            frame:
+                                candidate.frame,
+
+                            value:
+                                Number(
+                                    candidate.value.toFixed(3)
+                                )
+                        })
+                    )
 
             },
 
 
+            // ------------------------------------------------
             // ④ 踏切
+            // ------------------------------------------------
 
             takeOff: {
 
-                score: takeOffScore,
+                score:
+                    takeOffScore,
 
-                text: takeOffText,
+                text:
+                    takeOffText,
 
-                value: footDifference,
+                value:
+                    footDifference,
 
                 measured:
                     footDifference.toFixed(3),
@@ -927,15 +1113,20 @@ function calculateDScore(frames, phase) {
             },
 
 
+            // ------------------------------------------------
             // ⑤ 着地
+            // ------------------------------------------------
 
             landing: {
 
-                score: landingScore,
+                score:
+                    landingScore,
 
-                text: landingText,
+                text:
+                    landingText,
 
-                value: landingDifference,
+                value:
+                    landingDifference,
 
                 measured:
                     landingDifference.toFixed(3),
@@ -952,57 +1143,115 @@ function calculateDScore(frames, phase) {
 
 
     // ==================================================
-    // デバッグ
+    // コンソール確認
     // ==================================================
 
     console.log(
-        "========== Ver5.9 SCORE =========="
+        "===================================="
     );
 
     console.log(
-        "膝:",
+        "跳び箱AI採点システム Ver6.0"
+    );
+
+    console.log(
+        "===================================="
+    );
+
+
+    console.log(
+        "① 膝:",
         kneeScore,
         "角度:",
         kneeAngle.toFixed(1),
         "°"
     );
 
+
     console.log(
-        "腰:",
+        "② 腰:",
         hipScore,
-        "腰上昇量:",
+        "実測値:",
         hipRise.toFixed(3)
     );
 
-    console.log(
-        "着手候補値:",
-        handValues
-    );
 
     console.log(
-        "着手:",
-        handScore,
-        "代表実測値:",
+        "③ 着手:"
+    );
+
+
+    console.log(
+        "着手判定フレーム:",
+        phase.handContact
+    );
+
+
+    console.log(
+        "選択フレーム:",
+        selectedHandFrame
+    );
+
+
+    console.log(
+        "候補数:",
+        handCandidates.length
+    );
+
+
+    console.log(
+        "候補値:",
+        handCandidates
+    );
+
+
+    console.log(
+        "着手代表値:",
         handPosition.toFixed(3)
     );
 
+
     console.log(
-        "踏切:",
+        "着手測定状態:",
+        handMeasurementStatus
+    );
+
+
+    console.log(
+        "着手スコア:",
+        handScore
+    );
+
+
+    console.log(
+        "④ 踏切:",
         takeOffScore,
         "実測値:",
         footDifference.toFixed(3)
     );
 
+
     console.log(
-        "着地:",
+        "⑤ 着地:",
         landingScore,
         "実測値:",
         landingDifference.toFixed(3)
     );
 
+
+    console.log(
+        "===================================="
+    );
+
+
     console.log(
         "Dスコア:",
         total
+    );
+
+
+    console.log(
+        "===================================="
     );
 
 
@@ -1020,5 +1269,5 @@ window.calculateDScore =
 
 
 console.log(
-    "score.js Ver5.9 読み込み成功"
+    "score.js Ver6.0 読み込み成功"
 );
