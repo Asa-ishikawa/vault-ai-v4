@@ -1,776 +1,944 @@
-// ===============================
-// 跳び箱AI採点システム Ver5.3.4
-// phase.js 完成版
-// 着地判定・改良版
-//
-// 改良内容
-// ① 本当に踏切して空中に入ったかを確認
-// ② 両足が十分に床から離れたことを確認
-// ③ その後、両足が踏切時の床高さまで戻ったことを確認
-// ④ 着地後に複数フレーム安定していることを確認
-// ⑤ 「跳び箱の上に座って終了」を着地と判定しにくくする
-// ⑥ 動画終了＝着地とはしない
-// ===============================
-
-let phaseResult = null;
+// ==================================================
+// 跳び箱AI採点システム
+// phase.js Ver6.1
+// 動作フェーズ検出・着手候補確認版
+// ==================================================
 
 
 // ==================================================
-// 共通：ランドマーク取得
-// ==================================================
-
-function phaseGetPoint(frame, index) {
-
-    if (!frame) return null;
-
-    const landmarks =
-        frame.landmarks ||
-        frame.poseLandmarks ||
-        frame;
-
-    if (!landmarks || !landmarks[index]) {
-        return null;
-    }
-
-    const p = landmarks[index];
-
-    if (
-        typeof p.x !== "number" ||
-        typeof p.y !== "number"
-    ) {
-        return null;
-    }
-
-    return p;
-}
-
-
-// ==================================================
-// 腰中心
-// ==================================================
-
-function phaseGetHipCenter(frame) {
-
-    const left =
-        phaseGetPoint(frame, 23);
-
-    const right =
-        phaseGetPoint(frame, 24);
-
-    if (!left || !right) {
-        return null;
-    }
-
-    return {
-        x: (left.x + right.x) / 2,
-        y: (left.y + right.y) / 2
-    };
-}
-
-
-// ==================================================
-// 足首中心
-// ==================================================
-
-function phaseGetFootCenter(frame) {
-
-    const left =
-        phaseGetPoint(frame, 27);
-
-    const right =
-        phaseGetPoint(frame, 28);
-
-    if (!left || !right) {
-        return null;
-    }
-
-    return {
-        x: (left.x + right.x) / 2,
-        y: (left.y + right.y) / 2
-    };
-}
-
-
-// ==================================================
-// 踏切前の床高さを取得
-// ==================================================
-
-function getTakeOffFootBaseline(frames, takeOff) {
-
-    const values = [];
-
-    const start =
-        Math.max(0, takeOff - 8);
-
-    const end =
-        Math.max(start, takeOff - 1);
-
-    for (let i = start; i <= end; i++) {
-
-        const foot =
-            phaseGetFootCenter(frames[i]);
-
-        if (!foot) continue;
-
-        values.push(foot.y);
-    }
-
-    if (values.length === 0) {
-        return null;
-    }
-
-    return (
-        values.reduce(
-            (sum, value) => sum + value,
-            0
-        ) / values.length
-    );
-}
-
-
-// ==================================================
-// フェーズ検出
+// メイン
 // ==================================================
 
 function detectPhases(frames) {
 
-    if (!frames || frames.length < 20) {
+    console.log("====================================");
+    console.log("phase.js Ver6.1");
+    console.log("動作フェーズ検出開始");
+    console.log("====================================");
 
-        console.warn(
-            "フェーズ解析：フレーム不足"
+
+    // ==================================================
+    // データ確認
+    // ==================================================
+
+    if (
+        !Array.isArray(frames) ||
+        frames.length < 20
+    ) {
+
+        console.log(
+            "phase: フレーム不足",
+            frames
         );
 
         return null;
     }
 
 
-    // ------------------------------------------
-    // 初期値
-    // ------------------------------------------
+    console.log(
+        "総フレーム数:",
+        frames.length
+    );
 
-    let takeOff = -1;
-    let handContact = -1;
-    let highestHip = -1;
-    let landing = -1;
+
+
+    // ==================================================
+    // フレーム番号取得
+    // ==================================================
+
+    function getFrameNumber(frame, index) {
+
+        if (
+            frame &&
+            Number.isFinite(
+                Number(frame.frame)
+            )
+        ) {
+
+            return Number(
+                frame.frame
+            );
+
+        }
+
+        return index;
+
+    }
+
+
+
+    // ==================================================
+    // 座標取得
+    // ==================================================
+
+    function getPoint(frame, index) {
+
+        if (!frame) {
+            return null;
+        }
+
+
+        // landmarks形式
+        if (
+            Array.isArray(
+                frame.landmarks
+            )
+        ) {
+
+            const p =
+                frame.landmarks[index];
+
+            if (
+                p &&
+                Number.isFinite(p.x) &&
+                Number.isFinite(p.y)
+            ) {
+
+                return p;
+
+            }
+
+        }
+
+
+        // poseLandmarks形式
+        if (
+            Array.isArray(
+                frame.poseLandmarks
+            )
+        ) {
+
+            const p =
+                frame.poseLandmarks[index];
+
+            if (
+                p &&
+                Number.isFinite(p.x) &&
+                Number.isFinite(p.y)
+            ) {
+
+                return p;
+
+            }
+
+        }
+
+
+        // pose形式
+        if (
+            Array.isArray(
+                frame.pose
+            )
+        ) {
+
+            const p =
+                frame.pose[index];
+
+            if (
+                p &&
+                Number.isFinite(p.x) &&
+                Number.isFinite(p.y)
+            ) {
+
+                return p;
+
+            }
+
+        }
+
+
+        return null;
+    }
+
+
+
+    // ==================================================
+    // 左右腰の中心
+    // ==================================================
+
+    function getHipCenter(frame) {
+
+        const left =
+            getPoint(
+                frame,
+                23
+            );
+
+
+        const right =
+            getPoint(
+                frame,
+                24
+            );
+
+
+        if (
+            !left ||
+            !right
+        ) {
+
+            return null;
+
+        }
+
+
+        return {
+
+            x:
+                (
+                    left.x +
+                    right.x
+                ) / 2,
+
+            y:
+                (
+                    left.y +
+                    right.y
+                ) / 2
+
+        };
+
+    }
+
+
+
+    // ==================================================
+    // 体格スケール
+    //
+    // 肩幅＋腰幅を利用
+    // ==================================================
+
+    function getBodyScale(frame) {
+
+        const leftShoulder =
+            getPoint(
+                frame,
+                11
+            );
+
+
+        const rightShoulder =
+            getPoint(
+                frame,
+                12
+            );
+
+
+        const leftHip =
+            getPoint(
+                frame,
+                23
+            );
+
+
+        const rightHip =
+            getPoint(
+                frame,
+                24
+            );
+
+
+        const values = [];
+
+
+        if (
+            leftShoulder &&
+            rightShoulder
+        ) {
+
+            values.push(
+                Math.abs(
+                    leftShoulder.x -
+                    rightShoulder.x
+                )
+            );
+
+        }
+
+
+        if (
+            leftHip &&
+            rightHip
+        ) {
+
+            values.push(
+                Math.abs(
+                    leftHip.x -
+                    rightHip.x
+                )
+            );
+
+        }
+
+
+        if (
+            values.length === 0
+        ) {
+
+            return 0.3;
+
+        }
+
+
+        const average =
+            values.reduce(
+                (a, b) => a + b,
+                0
+            ) /
+            values.length;
+
+
+        if (
+            !Number.isFinite(
+                average
+            ) ||
+            average <= 0.01
+        ) {
+
+            return 0.3;
+
+        }
+
+
+        return average;
+
+    }
+
 
 
     // ==================================================
     // ① 腰の最高点
+    //
+    // MediaPipeではYが小さいほど上
     // ==================================================
+
+    let highestHip = 0;
 
     let minHipY = Infinity;
 
-    for (let i = 0; i < frames.length; i++) {
 
-        const hip =
-            phaseGetHipCenter(frames[i]);
+    frames.forEach(
+        (frame, index) => {
 
-        if (!hip) continue;
-
-        if (hip.y < minHipY) {
-
-            minHipY = hip.y;
-            highestHip = i;
-
-        }
-    }
+            const hip =
+                getHipCenter(
+                    frame
+                );
 
 
-    // ==================================================
-    // ② 着手位置
-    // 手首が最も前に出た位置
-    // ==================================================
+            if (!hip) {
+                return;
+            }
 
-    let maxHandX = -Infinity;
 
-    for (let i = 0; i < frames.length; i++) {
+            if (
+                Number.isFinite(
+                    hip.y
+                ) &&
+                hip.y < minHipY
+            ) {
 
-        const left =
-            phaseGetPoint(frames[i], 15);
+                minHipY =
+                    hip.y;
 
-        const right =
-            phaseGetPoint(frames[i], 16);
+                highestHip =
+                    index;
 
-        if (!left || !right) continue;
-
-        const handX =
-            (left.x + right.x) / 2;
-
-        if (handX > maxHandX) {
-
-            maxHandX = handX;
-            handContact = i;
+            }
 
         }
-    }
+    );
+
 
 
     // ==================================================
-    // ③ 踏切判定
+    // ② 踏切候補
     //
-    // 重要：
-    // 「足首が少し動いた」だけでは踏切にしない。
-    //
-    // 踏切前の足の高さを基準にして、
-    // 両足が十分に上昇した状態を確認する。
+    // 足首Yが大きく変化する前後を確認
     // ==================================================
 
-    let baselineCandidates = [];
+    let takeOff = 0;
 
-    const baselineEnd =
-        handContact > 0
-            ? Math.min(
-                handContact - 1,
-                15
-            )
-            : 15;
+    let maxFootChange = 0;
+
 
     for (
-        let i = 0;
-        i <= baselineEnd && i < frames.length;
+        let i = 1;
+        i < frames.length;
         i++
     ) {
 
-        const foot =
-            phaseGetFootCenter(frames[i]);
-
-        if (!foot) continue;
-
-        baselineCandidates.push(foot.y);
-
-    }
-
-    let initialFootY = null;
-
-    if (baselineCandidates.length > 0) {
-
-        initialFootY =
-            baselineCandidates.reduce(
-                (sum, value) => sum + value,
-                0
-            ) /
-            baselineCandidates.length;
-
-    }
-
-
-    // --------------------------------------------------
-    // 両足が十分に上がった最初のフレームを探す
-    // --------------------------------------------------
-
-    if (initialFootY !== null) {
-
-        for (
-            let i = 2;
-            i < frames.length - 4;
-            i++
-        ) {
-
-            const f0 =
-                phaseGetFootCenter(frames[i]);
-
-            const f1 =
-                phaseGetFootCenter(frames[i + 1]);
-
-            const f2 =
-                phaseGetFootCenter(frames[i + 2]);
-
-            const f3 =
-                phaseGetFootCenter(frames[i + 3]);
-
-            if (
-                !f0 ||
-                !f1 ||
-                !f2 ||
-                !f3
-            ) {
-                continue;
-            }
-
-
-            // 足が床から十分に離れたか
-            const lift0 =
-                initialFootY - f0.y;
-
-            const lift1 =
-                initialFootY - f1.y;
-
-            const lift2 =
-                initialFootY - f2.y;
-
-
-            // 3フレーム以上連続して
-            // 床から約5%以上離れている
-            const airborne =
-                lift0 > 0.05 &&
-                lift1 > 0.05 &&
-                lift2 > 0.05;
-
-
-            if (airborne) {
-
-                takeOff = i;
-
-                break;
-            }
-        }
-    }
-
-
-    // --------------------------------------------------
-    // 踏切が確認できなかった場合
-    // --------------------------------------------------
-
-    if (takeOff < 0) {
-
-        console.warn(
-            "フェーズ解析：明確な踏切を確認できませんでした"
-        );
-
-    }
-
-
-    // ==================================================
-    // ④ 最高点
-    // ==================================================
-
-    if (highestHip < 0) {
-
-        highestHip =
-            Math.floor(frames.length / 2);
-
-    }
-
-
-    // ==================================================
-    // ⑤ 着地判定
-    //
-    // 今回の改良の中心。
-    //
-    // 必須条件：
-    //
-    // A：明確な踏切がある
-    // B：空中に入っている
-    // C：最高点を通過している
-    // D：両足が床高さまで戻る
-    // E：着地後に複数フレーム安定
-    //
-    // 「跳び箱の上に座る」だけでは
-    // 着地にならない。
-    // ==================================================
-
-    if (takeOff >= 0 && highestHip >= 0) {
-
-        const floorY =
-            getTakeOffFootBaseline(
-                frames,
-                takeOff
+        const prevLeft =
+            getPoint(
+                frames[i - 1],
+                27
             );
 
 
-        if (floorY !== null) {
+        const prevRight =
+            getPoint(
+                frames[i - 1],
+                28
+            );
 
-            // ------------------------------------------
-            // 空中に入ったことを再確認
-            // ------------------------------------------
 
-            let airborneConfirmed = false;
+        const left =
+            getPoint(
+                frames[i],
+                27
+            );
 
-            const airborneStart =
-                Math.max(
-                    takeOff,
-                    0
+
+        const right =
+            getPoint(
+                frames[i],
+                28
+            );
+
+
+        if (
+            !prevLeft ||
+            !prevRight ||
+            !left ||
+            !right
+        ) {
+
+            continue;
+
+        }
+
+
+        const previousY =
+            (
+                prevLeft.y +
+                prevRight.y
+            ) / 2;
+
+
+        const currentY =
+            (
+                left.y +
+                right.y
+            ) / 2;
+
+
+        const change =
+            Math.abs(
+                currentY -
+                previousY
+            );
+
+
+        if (
+            change >
+            maxFootChange
+        ) {
+
+            maxFootChange =
+                change;
+
+            takeOff =
+                i;
+
+        }
+
+    }
+
+
+
+    // ==================================================
+    // ③ 着手候補検出
+    //
+    // 手首Xの「前方への移動」を利用
+    //
+    // 今回は候補をすべて保存する
+    // ==================================================
+
+    const handCandidates = [];
+
+
+    for (
+        let i = 1;
+        i < frames.length;
+        i++
+    ) {
+
+        const frame =
+            frames[i];
+
+
+        const previous =
+            frames[i - 1];
+
+
+        const left =
+            getPoint(
+                frame,
+                15
+            );
+
+
+        const right =
+            getPoint(
+                frame,
+                16
+            );
+
+
+        const previousLeft =
+            getPoint(
+                previous,
+                15
+            );
+
+
+        const previousRight =
+            getPoint(
+                previous,
+                16
+            );
+
+
+        if (
+            !left ||
+            !right ||
+            !previousLeft ||
+            !previousRight
+        ) {
+
+            continue;
+
+        }
+
+
+        const handX =
+            (
+                left.x +
+                right.x
+            ) / 2;
+
+
+        const previousHandX =
+            (
+                previousLeft.x +
+                previousRight.x
+            ) / 2;
+
+
+        const movement =
+            Math.abs(
+                handX -
+                previousHandX
+            );
+
+
+        const hip =
+            getHipCenter(
+                frame
+            );
+
+
+        if (!hip) {
+            continue;
+        }
+
+
+        const scale =
+            getBodyScale(
+                frame
+            );
+
+
+        if (
+            !Number.isFinite(scale) ||
+            scale <= 0
+        ) {
+
+            continue;
+
+        }
+
+
+        const distance =
+            Math.abs(
+                handX -
+                hip.x
+            ) /
+            scale;
+
+
+        if (
+            Number.isFinite(
+                distance
+            )
+        ) {
+
+            handCandidates.push({
+
+                index:
+                    i,
+
+                frame:
+                    getFrameNumber(
+                        frame,
+                        i
+                    ),
+
+                movement:
+                    movement,
+
+                distance:
+                    distance,
+
+                handX:
+                    handX,
+
+                hipX:
+                    hip.x
+
+            });
+
+        }
+
+    }
+
+
+
+    // ==================================================
+    // 着手候補を「踏切後～最高点前」に限定
+    //
+    // 開脚跳びでは
+    // 踏切 → 着手 → 最高点
+    // の順になるため
+    // ==================================================
+
+    const validHandCandidates =
+        handCandidates.filter(
+            candidate => {
+
+                return (
+                    candidate.index >=
+                    takeOff
+                    &&
+                    candidate.index <=
+                    highestHip
                 );
 
-            const airborneEnd =
-                Math.min(
-                    highestHip + 10,
-                    frames.length - 1
-                );
-
-            for (
-                let i = airborneStart;
-                i <= airborneEnd;
-                i++
-            ) {
-
-                const foot =
-                    phaseGetFootCenter(frames[i]);
-
-                if (!foot) continue;
-
-                const lift =
-                    floorY - foot.y;
-
-                if (lift > 0.06) {
-
-                    airborneConfirmed = true;
-
-                    break;
-                }
             }
+        );
 
 
-            // ------------------------------------------
-            // 空中動作が確認できた場合だけ
-            // 着地探索を行う
-            // ------------------------------------------
 
-            if (airborneConfirmed) {
+    // ==================================================
+    // 候補がない場合
+    // 広い範囲から再検索
+    // ==================================================
 
-                const searchStart =
-                    Math.max(
-                        highestHip + 2,
-                        takeOff + 5
-                    );
+    let finalHandCandidates =
+        validHandCandidates;
 
 
-                for (
-                    let i = searchStart;
-                    i < frames.length - 8;
-                    i++
+    if (
+        finalHandCandidates.length === 0
+    ) {
+
+        finalHandCandidates =
+            handCandidates;
+
+    }
+
+
+
+    // ==================================================
+    // 着手フレーム決定
+    //
+    // 「手が最も前に出た瞬間」を基本とする
+    //
+    // X座標の最大値ではなく、
+    // 踏切後の手の移動量を考慮
+    // ==================================================
+
+    let handContact = 0;
+
+
+    if (
+        finalHandCandidates.length > 0
+    ) {
+
+        let best =
+            finalHandCandidates[0];
+
+
+        finalHandCandidates.forEach(
+            candidate => {
+
+                // 手の前方移動量を優先
+                if (
+                    candidate.movement >
+                    best.movement
                 ) {
 
-                    const current =
-                        phaseGetFootCenter(
-                            frames[i]
-                        );
+                    best =
+                        candidate;
 
-                    const next =
-                        phaseGetFootCenter(
-                            frames[i + 1]
-                        );
-
-                    const next2 =
-                        phaseGetFootCenter(
-                            frames[i + 2]
-                        );
-
-                    const next3 =
-                        phaseGetFootCenter(
-                            frames[i + 3]
-                        );
-
-                    const next4 =
-                        phaseGetFootCenter(
-                            frames[i + 4]
-                        );
-
-                    const next5 =
-                        phaseGetFootCenter(
-                            frames[i + 5]
-                        );
-
-                    if (
-                        !current ||
-                        !next ||
-                        !next2 ||
-                        !next3 ||
-                        !next4 ||
-                        !next5
-                    ) {
-                        continue;
-                    }
-
-
-                    // ----------------------------------
-                    // A
-                    // 踏切時の床高さに戻ったか
-                    // ----------------------------------
-
-                    const currentDifference =
-                        Math.abs(
-                            current.y - floorY
-                        );
-
-                    const nearFloor =
-                        currentDifference < 0.07;
-
-
-                    // ----------------------------------
-                    // B
-                    // 下降後に止まったか
-                    // ----------------------------------
-
-                    const movement1 =
-                        Math.abs(
-                            next.y - current.y
-                        );
-
-                    const movement2 =
-                        Math.abs(
-                            next2.y - next.y
-                        );
-
-                    const movement3 =
-                        Math.abs(
-                            next3.y - next2.y
-                        );
-
-                    const movement4 =
-                        Math.abs(
-                            next4.y - next3.y
-                        );
-
-                    const movement5 =
-                        Math.abs(
-                            next5.y - next4.y
-                        );
-
-
-                    const stable =
-                        movement1 < 0.015 &&
-                        movement2 < 0.015 &&
-                        movement3 < 0.015 &&
-                        movement4 < 0.015 &&
-                        movement5 < 0.015;
-
-
-                    // ----------------------------------
-                    // C
-                    // 両足が近い高さにあるか
-                    // ----------------------------------
-
-                    const left =
-                        phaseGetPoint(
-                            frames[i],
-                            27
-                        );
-
-                    const right =
-                        phaseGetPoint(
-                            frames[i],
-                            28
-                        );
-
-                    if (!left || !right) {
-                        continue;
-                    }
-
-
-                    const feetDifference =
-                        Math.abs(
-                            left.y - right.y
-                        );
-
-
-                    const feetTogether =
-                        feetDifference < 0.12;
-
-
-                    // ----------------------------------
-                    // D
-                    // 着地直前に下降しているか
-                    // ----------------------------------
-
-                    const previous =
-                        phaseGetFootCenter(
-                            frames[i - 1]
-                        );
-
-                    let descending = true;
-
-                    if (previous) {
-
-                        // yが大きくなる＝下方向
-                        descending =
-                            current.y >=
-                            previous.y - 0.01;
-
-                    }
-
-
-                    // ----------------------------------
-                    // E
-                    // 着地条件
-                    // ----------------------------------
-
-                    if (
-                        nearFloor &&
-                        stable &&
-                        feetTogether &&
-                        descending
-                    ) {
-
-                        landing = i;
-
-                        break;
-                    }
                 }
+
             }
+        );
+
+
+        handContact =
+            best.index;
+
+    }
+
+
+
+    // ==================================================
+    // ④ 着地
+    //
+    // 最後の有効フレームを基本とする
+    // ==================================================
+
+    let landing =
+        frames.length - 1;
+
+
+
+    // ==================================================
+    // 着地候補を探す
+    //
+    // 足首が下方向へ戻り、
+    // その後ある程度安定する場所
+    // ==================================================
+
+    const landingCandidates = [];
+
+
+    for (
+        let i = Math.max(
+            highestHip,
+            handContact
+        );
+        i < frames.length;
+        i++
+    ) {
+
+        const left =
+            getPoint(
+                frames[i],
+                27
+            );
+
+
+        const right =
+            getPoint(
+                frames[i],
+                28
+            );
+
+
+        if (
+            !left ||
+            !right
+        ) {
+
+            continue;
+
         }
+
+
+        const footY =
+            (
+                left.y +
+                right.y
+            ) / 2;
+
+
+        if (
+            Number.isFinite(
+                footY
+            )
+        ) {
+
+            landingCandidates.push({
+
+                index:
+                    i,
+
+                frame:
+                    getFrameNumber(
+                        frames[i],
+                        i
+                    ),
+
+                footY:
+                    footY
+
+            });
+
+        }
+
     }
 
 
+
     // ==================================================
-    // ⑥ 着地なし
+    // 着地候補の中から
+    // 後半の安定したフレームを採用
     // ==================================================
 
-    if (landing < 0) {
+    if (
+        landingCandidates.length > 0
+    ) {
 
-        console.log(
-            "着地判定：着地なし"
-        );
+        landing =
+            landingCandidates[
+                landingCandidates.length - 1
+            ].index;
 
-    } else {
-
-        console.log(
-            "着地判定：着地あり",
-            landing
-        );
     }
 
 
+
     // ==================================================
-    // ⑦ 結果保存
+    // 結果
     // ==================================================
 
-    phaseResult = {
+    const result = {
 
-        takeOff,
-        handContact,
-        highestHip,
-        landing
+        takeOff:
+            getFrameNumber(
+                frames[takeOff],
+                takeOff
+            ),
+
+        handContact:
+            getFrameNumber(
+                frames[handContact],
+                handContact
+            ),
+
+        highestHip:
+            getFrameNumber(
+                frames[highestHip],
+                highestHip
+            ),
+
+        landing:
+            getFrameNumber(
+                frames[landing],
+                landing
+            ),
+
+
+        // ----------------------------------------------
+        // デバッグ用
+        // ----------------------------------------------
+
+        handCandidateCount:
+            finalHandCandidates.length,
+
+
+        handCandidates:
+            finalHandCandidates.map(
+                candidate => ({
+
+                    frame:
+                        candidate.frame,
+
+                    index:
+                        candidate.index,
+
+                    movement:
+                        Number(
+                            candidate.movement.toFixed(4)
+                        ),
+
+                    distance:
+                        Number(
+                            candidate.distance.toFixed(3)
+                        )
+
+                })
+            ),
+
+
+        selectedHandFrame:
+            getFrameNumber(
+                frames[handContact],
+                handContact
+            )
 
     };
 
 
-    // ==================================================
-    // デバッグ表示
-    // ==================================================
-
-    console.log(
-        "================================"
-    );
-
-    console.log(
-        "Phase Ver5.3.4"
-    );
-
-    console.log(
-        "踏切：",
-        takeOff
-    );
-
-    console.log(
-        "着手：",
-        handContact
-    );
-
-    console.log(
-        "最高点：",
-        highestHip
-    );
-
-    console.log(
-        "着地：",
-        landing >= 0
-            ? landing
-            : "着地なし"
-    );
-
-    console.log(
-        "================================"
-    );
-
 
     // ==================================================
-    // 画面更新
+    // コンソール表示
     // ==================================================
 
-    updatePhaseDisplay();
+    console.log(
+        "========== PHASE Ver6.1 =========="
+    );
 
 
-    return phaseResult;
+    console.log(
+        "総フレーム:",
+        frames.length
+    );
+
+
+    console.log(
+        "踏切:",
+        result.takeOff
+    );
+
+
+    console.log(
+        "着手:",
+        result.handContact
+    );
+
+
+    console.log(
+        "最高点:",
+        result.highestHip
+    );
+
+
+    console.log(
+        "着地:",
+        result.landing
+    );
+
+
+    console.log(
+        "着手候補数:",
+        result.handCandidateCount
+    );
+
+
+    console.log(
+        "着手候補:",
+        result.handCandidates
+    );
+
+
+    console.log(
+        "選択着手フレーム:",
+        result.selectedHandFrame
+    );
+
+
+    console.log(
+        "=================================="
+    );
+
+
+    return result;
 }
 
-
-// ==================================================
-// フェーズ結果取得
-// ==================================================
-
-function getPhaseResult() {
-
-    return phaseResult;
-
-}
-
-
-// ==================================================
-// フェーズ表示
-// ==================================================
-
-function updatePhaseDisplay() {
-
-    const phaseInfo =
-        document.getElementById(
-            "phaseInfo"
-        );
-
-    if (!phaseInfo) {
-        return;
-    }
-
-
-    if (!phaseResult) {
-
-        phaseInfo.textContent =
-            "未解析";
-
-        return;
-    }
-
-
-    const landingText =
-        phaseResult.landing >= 0
-            ? phaseResult.landing
-            : "着地なし";
-
-
-    phaseInfo.innerHTML = `
-        <strong>踏切：</strong>
-        ${phaseResult.takeOff >= 0
-            ? phaseResult.takeOff
-            : "未検出"}<br>
-
-        <strong>着手：</strong>
-        ${phaseResult.handContact >= 0
-            ? phaseResult.handContact
-            : "未検出"}<br>
-
-        <strong>最高点：</strong>
-        ${phaseResult.highestHip >= 0
-            ? phaseResult.highestHip
-            : "未検出"}<br>
-
-        <strong>着地：</strong>
-        ${landingText}
-    `;
-}
-
-
-// ==================================================
-// フェーズリセット
-// ==================================================
-
-function clearPhase() {
-
-    phaseResult = null;
-
-
-    const phaseInfo =
-        document.getElementById(
-            "phaseInfo"
-        );
-
-
-    if (phaseInfo) {
-
-        phaseInfo.textContent =
-            "未解析";
-
-    }
-}
 
 
 // ==================================================
@@ -780,11 +948,7 @@ function clearPhase() {
 window.detectPhases =
     detectPhases;
 
-window.getPhaseResult =
-    getPhaseResult;
 
-window.updatePhaseDisplay =
-    updatePhaseDisplay;
-
-window.clearPhase =
-    clearPhase;
+console.log(
+    "phase.js Ver6.1 読み込み成功"
+);
