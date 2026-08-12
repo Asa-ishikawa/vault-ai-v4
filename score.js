@@ -1,17 +1,17 @@
 // ==================================================
 // 跳び箱AI採点システム
-// score.js Ver6.0
+// score.js Ver6.1
 //
-// ・膝角度直接計算
-// ・腰上昇量
-// ・着手位置
+// 膝判定改良版
+// ・膝角度候補から上位値を使用
+// ・単純平均による過小評価を改善
+// ・腰
+// ・着手
 // ・両足踏切
-// ・着地安定
+// ・着地
 // ・着地なし判定
 // ・実測値表示
-// ・膝角度候補表示
 // ==================================================
-
 
 function calculateDScore(frames, phase) {
 
@@ -147,9 +147,9 @@ function calculateDScore(frames, phase) {
     const kneeValues = [];
 
 
-    // --------------------------------------------------
-    // 3点から膝角度を計算
-    // --------------------------------------------------
+    // ==================================================
+    // 膝角度計算
+    // ==================================================
 
     function calculateKneeAngle(
         hip,
@@ -256,11 +256,11 @@ function calculateDScore(frames, phase) {
 
 
 
-    // --------------------------------------------------
-    // 膝を測定する範囲
+    // ==================================================
+    // 膝を測定
     //
-    // highestHipを中心に前後20フレーム
-    // --------------------------------------------------
+    // 踏切～最高点付近を広めに確認
+    // ==================================================
 
     let kneeStart = 0;
     let kneeEnd =
@@ -268,6 +268,26 @@ function calculateDScore(frames, phase) {
 
 
     if (
+        handIndex >= 0 &&
+        hipIndex >= 0
+    ) {
+
+        kneeStart =
+            Math.max(
+                0,
+                handIndex - 5
+            );
+
+
+        kneeEnd =
+            Math.min(
+                data.length - 1,
+                hipIndex + 15
+            );
+
+    }
+
+    else if (
         hipIndex >= 0
     ) {
 
@@ -281,16 +301,16 @@ function calculateDScore(frames, phase) {
         kneeEnd =
             Math.min(
                 data.length - 1,
-                hipIndex + 20
+                hipIndex + 15
             );
 
     }
 
 
 
-    // --------------------------------------------------
-    // 膝角度取得
-    // --------------------------------------------------
+    // ==================================================
+    // 左右の膝角度を取得
+    // ==================================================
 
     for (
         let i = kneeStart;
@@ -307,7 +327,9 @@ function calculateDScore(frames, phase) {
         }
 
 
+        // ------------------------------
         // 左脚
+        // ------------------------------
 
         const leftHip =
             getPoint(
@@ -340,7 +362,7 @@ function calculateDScore(frames, phase) {
 
         if (
             Number.isFinite(leftAngle) &&
-            leftAngle > 0 &&
+            leftAngle >= 60 &&
             leftAngle <= 180
         ) {
 
@@ -351,7 +373,10 @@ function calculateDScore(frames, phase) {
         }
 
 
+
+        // ------------------------------
         // 右脚
+        // ------------------------------
 
         const rightHip =
             getPoint(
@@ -384,7 +409,7 @@ function calculateDScore(frames, phase) {
 
         if (
             Number.isFinite(rightAngle) &&
-            rightAngle > 0 &&
+            rightAngle >= 60 &&
             rightAngle <= 180
         ) {
 
@@ -398,25 +423,70 @@ function calculateDScore(frames, phase) {
 
 
 
-    // --------------------------------------------------
-    // 膝角度
-    // --------------------------------------------------
+    // ==================================================
+    // 膝角度の決定
+    //
+    // ★Ver6.1改良
+    //
+    // 全データの平均ではなく、
+    // 上位20%の角度を平均する。
+    //
+    // これにより
+    // 「一瞬しっかり膝が伸びた」
+    // 動きを正しく拾いやすくする。
+    // ==================================================
 
-    const kneeAngle =
+    let kneeAngle = 0;
+
+
+    if (
         kneeValues.length > 0
-            ? kneeValues.reduce(
+    ) {
+
+        const sortedKneeValues =
+            [...kneeValues]
+                .sort(
+                    (a, b) =>
+                        b - a
+                );
+
+
+        const topCount =
+            Math.max(
+                1,
+                Math.ceil(
+                    sortedKneeValues.length *
+                    0.20
+                )
+            );
+
+
+        const topValues =
+            sortedKneeValues.slice(
+                0,
+                topCount
+            );
+
+
+        kneeAngle =
+            topValues.reduce(
                 (a, b) =>
                     a + b,
                 0
             ) /
-            kneeValues.length
-            : 0;
+            topValues.length;
+
+    }
 
 
 
-    // --------------------------------------------------
+    // ==================================================
     // 膝評価
-    // --------------------------------------------------
+    //
+    // 165°以上 → 2点
+    // 150°以上 → 1点
+    // 150°未満 → 0点
+    // ==================================================
 
     let kneeScore = 0;
     let kneeText = "";
@@ -455,9 +525,9 @@ function calculateDScore(frames, phase) {
 
 
 
-    // --------------------------------------------------
+    // ==================================================
     // 膝候補表示
-    // --------------------------------------------------
+    // ==================================================
 
     const kneeDebug =
         document.getElementById(
@@ -554,9 +624,9 @@ function calculateDScore(frames, phase) {
 
 
 
-    // --------------------------------------------------
+    // ==================================================
     // 最高点付近を確認
-    // --------------------------------------------------
+    // ==================================================
 
     if (
         takeOffIndex >= 0 &&
@@ -652,13 +722,9 @@ function calculateDScore(frames, phase) {
 
 
 
-    // --------------------------------------------------
+    // ==================================================
     // 腰評価
-    //
-    // 0点：0.200未満
-    // 1点：0.200～0.349
-    // 2点：0.350以上
-    // --------------------------------------------------
+    // ==================================================
 
     let hipScore = 0;
     let hipText = "";
@@ -982,10 +1048,6 @@ function calculateDScore(frames, phase) {
     const landingValues = [];
 
 
-    // --------------------------------------------------
-    // 着地が存在するか
-    // --------------------------------------------------
-
     const hasLanding =
         Number.isFinite(
             Number(
@@ -1086,10 +1148,6 @@ function calculateDScore(frames, phase) {
     let landingScore = 0;
     let landingText = "";
 
-
-    // --------------------------------------------------
-    // 着地判定
-    // --------------------------------------------------
 
     if (
         !hasLanding ||
@@ -1277,7 +1335,7 @@ function calculateDScore(frames, phase) {
     // ==================================================
 
     console.log(
-        "========== Ver6.0 SCORE =========="
+        "========== Ver6.1 SCORE =========="
     );
 
 
@@ -1296,10 +1354,17 @@ function calculateDScore(frames, phase) {
     console.log(
         "膝:",
         kneeScore,
-        "角度:",
+        "代表角度:",
         kneeAngle.toFixed(1),
+        "°",
         "候補数:",
         kneeValues.length
+    );
+
+
+    console.log(
+        "膝候補:",
+        kneeValues
     );
 
 
@@ -1358,5 +1423,5 @@ window.calculateDScore =
 
 
 console.log(
-    "score.js Ver6.0 読み込み成功"
+    "score.js Ver6.1 読み込み成功"
 );
