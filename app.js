@@ -1,7 +1,7 @@
-// ===============================
-// 跳び箱AI採点システム Ver5.5
+    // ===============================
+// 跳び箱AI採点システム Ver6.2
 // app.js
-// 完全版・丸ごと貼り替え
+// フェーズ・着手候補表示対応版
 // ===============================
 
 const videoFile = document.getElementById("videoFile");
@@ -39,6 +39,8 @@ function getPhaseInfoElement() {
         phaseInfo.style.marginTop = "10px";
         phaseInfo.style.padding = "10px";
         phaseInfo.style.borderRadius = "8px";
+        phaseInfo.style.backgroundColor = "#f5f5f5";
+        phaseInfo.style.lineHeight = "1.7";
 
         const parent =
             status.closest(".card");
@@ -88,6 +90,7 @@ videoFile.addEventListener(
         status.textContent =
             "動画を読み込み中...";
 
+
         const feedback =
             document.getElementById(
                 "feedback"
@@ -100,10 +103,11 @@ videoFile.addEventListener(
 
         }
 
+
         const phaseInfo =
             getPhaseInfoElement();
 
-        phaseInfo.textContent =
+        phaseInfo.innerHTML =
             "未解析";
 
     }
@@ -163,14 +167,17 @@ detectBtn.addEventListener(
 
         }
 
+
         if (analyzing) {
 
             return;
 
         }
 
+
         analyzing = true;
         analysisFinished = false;
+
 
         // ----------------------------
         // データ初期化
@@ -185,6 +192,7 @@ detectBtn.addEventListener(
 
         }
 
+
         if (
             typeof clearPhase ===
             "function"
@@ -194,13 +202,16 @@ detectBtn.addEventListener(
 
         }
 
+
         dScore.textContent = "-";
         totalScore.textContent = "-";
+
 
         const feedback =
             document.getElementById(
                 "feedback"
             );
+
 
         if (feedback) {
 
@@ -209,11 +220,14 @@ detectBtn.addEventListener(
 
         }
 
+
         const phaseInfo =
             getPhaseInfoElement();
 
-        phaseInfo.textContent =
+
+        phaseInfo.innerHTML =
             "解析中...";
+
 
         status.textContent =
             "AI解析中...";
@@ -283,11 +297,13 @@ video.addEventListener(
             "動画終了を検出"
         );
 
+
         if (!analyzing) {
 
             return;
 
         }
+
 
         finishAnalysis();
 
@@ -307,15 +323,18 @@ function finishAnalysis() {
 
     }
 
+
     if (analysisFinished) {
 
         return;
 
     }
 
+
     console.log(
-        "========== Ver5.5 解析終了 =========="
+        "========== Ver6.2 解析終了 =========="
     );
+
 
     analysisFinished = true;
     analyzing = false;
@@ -326,6 +345,7 @@ function finishAnalysis() {
     // ============================
 
     let frames = [];
+
 
     try {
 
@@ -340,6 +360,7 @@ function finishAnalysis() {
 
         }
 
+
         frames =
             getPoseFrames();
 
@@ -352,8 +373,10 @@ function finishAnalysis() {
             error
         );
 
+
         status.textContent =
             "骨格データ取得に失敗しました";
+
 
         return;
 
@@ -374,13 +397,16 @@ function finishAnalysis() {
         status.textContent =
             "骨格データが不足しています";
 
+
         getPhaseInfoElement()
             .textContent =
             "解析失敗";
 
+
         return;
 
     }
+
 
 
     // ============================
@@ -388,6 +414,7 @@ function finishAnalysis() {
     // ============================
 
     let phase = null;
+
 
     try {
 
@@ -402,8 +429,12 @@ function finishAnalysis() {
 
         }
 
+
         phase =
-            detectPhases(frames);
+            detectPhases(
+                frames
+            );
+
 
         console.log(
             "フェーズ結果:",
@@ -419,12 +450,15 @@ function finishAnalysis() {
             error
         );
 
+
         getPhaseInfoElement()
             .textContent =
             "フェーズ検出エラー";
 
+
         status.textContent =
             "フェーズ検出に失敗しました";
+
 
         return;
 
@@ -437,12 +471,15 @@ function finishAnalysis() {
             .textContent =
             "フェーズ検出に失敗しました";
 
+
         status.textContent =
             "フェーズ検出に失敗しました";
+
 
         return;
 
     }
+
 
 
     // ============================
@@ -452,7 +489,12 @@ function finishAnalysis() {
     const phaseInfo =
         getPhaseInfoElement();
 
-    phaseInfo.innerHTML = `
+
+    // --------------------------------
+    // 基本フェーズ
+    // --------------------------------
+
+    let phaseHTML = `
 
         <strong>動作フェーズ</strong><br>
 
@@ -475,11 +517,114 @@ function finishAnalysis() {
     `;
 
 
+    // --------------------------------
+    // 着手候補情報
+    // --------------------------------
+
+    if (
+        Number.isFinite(
+            Number(
+                phase.handCandidateCount
+            )
+        )
+    ) {
+
+        phaseHTML += `
+
+            <hr>
+
+            <strong>着手位置解析</strong><br>
+
+            着手候補数：
+            ${phase.handCandidateCount}<br>
+
+            選択着手フレーム：
+            ${phase.selectedHandFrame}
+
+        `;
+
+    }
+
+    else {
+
+        phaseHTML += `
+
+            <hr>
+
+            <strong>着手位置解析</strong><br>
+
+            着手候補数：
+            データなし<br>
+
+            選択着手フレーム：
+            データなし
+
+        `;
+
+    }
+
+
+    // --------------------------------
+    // 着手候補一覧
+    // --------------------------------
+
+    if (
+        Array.isArray(
+            phase.handCandidates
+        ) &&
+        phase.handCandidates.length > 0
+    ) {
+
+        phaseHTML += `
+
+            <br>
+            <details>
+                <summary>
+                    着手候補の詳細
+                </summary>
+                <div style="margin-top:8px;">
+        `;
+
+
+        phase.handCandidates.forEach(
+            (candidate, index) => {
+
+                phaseHTML += `
+
+                    候補${index + 1}：
+                    ${candidate.frame}
+                    フレーム　
+                    実測値
+                    ${candidate.distance}
+                    <br>
+
+                `;
+
+            }
+        );
+
+
+        phaseHTML += `
+
+                </div>
+            </details>
+
+        `;
+
+    }
+
+
+    phaseInfo.innerHTML =
+        phaseHTML;
+
+
+
     // ============================
     // Dスコア
     // ============================
 
     let result = null;
+
 
     try {
 
@@ -494,11 +639,13 @@ function finishAnalysis() {
 
         }
 
+
         result =
             calculateDScore(
                 frames,
                 phase
             );
+
 
         console.log(
             "採点結果:",
@@ -514,8 +661,10 @@ function finishAnalysis() {
             error
         );
 
+
         status.textContent =
             "Dスコア計算に失敗しました";
+
 
         return;
 
@@ -527,9 +676,11 @@ function finishAnalysis() {
         status.textContent =
             "採点結果を取得できませんでした";
 
+
         return;
 
     }
+
 
 
     // ============================
@@ -537,7 +688,10 @@ function finishAnalysis() {
     // ============================
 
     const score =
-        Number(result.score);
+        Number(
+            result.score
+        );
+
 
     if (
         Number.isFinite(score)
@@ -556,6 +710,7 @@ function finishAnalysis() {
     }
 
 
+
     // ============================
     // フィードバック
     // ============================
@@ -567,7 +722,10 @@ function finishAnalysis() {
             "function"
         ) {
 
-            showFeedback(result);
+            showFeedback(
+                result
+            );
+
 
             console.log(
                 "フィードバック表示完了"
@@ -592,10 +750,12 @@ function finishAnalysis() {
             error
         );
 
+
         const feedback =
             document.getElementById(
                 "feedback"
             );
+
 
         if (feedback) {
 
@@ -607,11 +767,13 @@ function finishAnalysis() {
     }
 
 
+
     // ============================
     // 合計点
     // ============================
 
     updateTotal();
+
 
 
     // ============================
@@ -623,10 +785,11 @@ function finishAnalysis() {
 
 
     console.log(
-        "========== Ver5.5 解析完了 =========="
+        "========== Ver6.2 解析完了 =========="
     );
 
 }
+
 
 
 // ===============================
@@ -646,10 +809,12 @@ function updateTotal() {
             dScore.textContent
         );
 
+
     const e =
         Number(
             eScore.value
         );
+
 
     if (
         !Number.isFinite(d) ||
@@ -663,12 +828,14 @@ function updateTotal() {
 
     }
 
+
     totalScore.textContent =
         (
             d + e
         ).toFixed(1);
 
 }
+
 
 
 // ===============================
@@ -678,10 +845,11 @@ function updateTotal() {
 window.finishAnalysis =
     finishAnalysis;
 
+
 window.updateTotal =
     updateTotal;
 
 
 console.log(
-    "app.js Ver5.5 読み込み成功"
+    "app.js Ver6.2 読み込み成功"
 );
