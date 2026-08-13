@@ -1,465 +1,337 @@
 // ==================================================
 // 跳び箱AI採点システム
-// phase.js Ver6.1
-// 動作フェーズ検出・着手候補確認版
+// phase.js Ver6.3
+// 動作フェーズ検出・着手候補デバッグ完全版
 // ==================================================
 
 
 // ==================================================
-// メイン
+// フレームからランドマークを取得
 // ==================================================
 
-function detectPhases(frames) {
+function phaseGetPoint(frame, index) {
 
-    console.log("====================================");
-    console.log("phase.js Ver6.1");
-    console.log("動作フェーズ検出開始");
-    console.log("====================================");
+    if (!frame) {
+        return null;
+    }
 
 
-    // ==================================================
-    // データ確認
-    // ==================================================
+    // ----------------------------------------------
+    // landmarks
+    // ----------------------------------------------
 
     if (
-        !Array.isArray(frames) ||
-        frames.length < 20
+        Array.isArray(frame.landmarks)
     ) {
 
-        console.log(
-            "phase: フレーム不足",
-            frames
+        const p =
+            frame.landmarks[index];
+
+        if (
+            p &&
+            Number.isFinite(Number(p.x)) &&
+            Number.isFinite(Number(p.y))
+        ) {
+
+            return p;
+
+        }
+
+    }
+
+
+    // ----------------------------------------------
+    // poseLandmarks
+    // ----------------------------------------------
+
+    if (
+        Array.isArray(frame.poseLandmarks)
+    ) {
+
+        const p =
+            frame.poseLandmarks[index];
+
+        if (
+            p &&
+            Number.isFinite(Number(p.x)) &&
+            Number.isFinite(Number(p.y))
+        ) {
+
+            return p;
+
+        }
+
+    }
+
+
+    // ----------------------------------------------
+    // pose
+    // ----------------------------------------------
+
+    if (
+        Array.isArray(frame.pose)
+    ) {
+
+        const p =
+            frame.pose[index];
+
+        if (
+            p &&
+            Number.isFinite(Number(p.x)) &&
+            Number.isFinite(Number(p.y))
+        ) {
+
+            return p;
+
+        }
+
+    }
+
+
+    return null;
+
+}
+
+
+
+// ==================================================
+// フレーム番号
+// ==================================================
+
+function phaseGetFrameNumber(
+    frame,
+    index
+) {
+
+    if (
+        frame &&
+        Number.isFinite(
+            Number(frame.frame)
+        )
+    ) {
+
+        return Number(
+            frame.frame
         );
 
-        return null;
     }
 
 
-    console.log(
-        "総フレーム数:",
-        frames.length
-    );
+    return index;
 
+}
 
 
-    // ==================================================
-    // フレーム番号取得
-    // ==================================================
 
-    function getFrameNumber(frame, index) {
+// ==================================================
+// 腰中心
+// ==================================================
 
-        if (
-            frame &&
-            Number.isFinite(
-                Number(frame.frame)
-            )
-        ) {
+function phaseGetHipCenter(frame) {
 
-            return Number(
-                frame.frame
-            );
+    const left =
+        phaseGetPoint(
+            frame,
+            23
+        );
 
-        }
 
-        return index;
+    const right =
+        phaseGetPoint(
+            frame,
+            24
+        );
 
-    }
 
-
-
-    // ==================================================
-    // 座標取得
-    // ==================================================
-
-    function getPoint(frame, index) {
-
-        if (!frame) {
-            return null;
-        }
-
-
-        // landmarks形式
-        if (
-            Array.isArray(
-                frame.landmarks
-            )
-        ) {
-
-            const p =
-                frame.landmarks[index];
-
-            if (
-                p &&
-                Number.isFinite(p.x) &&
-                Number.isFinite(p.y)
-            ) {
-
-                return p;
-
-            }
-
-        }
-
-
-        // poseLandmarks形式
-        if (
-            Array.isArray(
-                frame.poseLandmarks
-            )
-        ) {
-
-            const p =
-                frame.poseLandmarks[index];
-
-            if (
-                p &&
-                Number.isFinite(p.x) &&
-                Number.isFinite(p.y)
-            ) {
-
-                return p;
-
-            }
-
-        }
-
-
-        // pose形式
-        if (
-            Array.isArray(
-                frame.pose
-            )
-        ) {
-
-            const p =
-                frame.pose[index];
-
-            if (
-                p &&
-                Number.isFinite(p.x) &&
-                Number.isFinite(p.y)
-            ) {
-
-                return p;
-
-            }
-
-        }
-
-
-        return null;
-    }
-
-
-
-    // ==================================================
-    // 左右腰の中心
-    // ==================================================
-
-    function getHipCenter(frame) {
-
-        const left =
-            getPoint(
-                frame,
-                23
-            );
-
-
-        const right =
-            getPoint(
-                frame,
-                24
-            );
-
-
-        if (
-            !left ||
-            !right
-        ) {
-
-            return null;
-
-        }
-
-
-        return {
-
-            x:
-                (
-                    left.x +
-                    right.x
-                ) / 2,
-
-            y:
-                (
-                    left.y +
-                    right.y
-                ) / 2
-
-        };
-
-    }
-
-
-
-    // ==================================================
-    // 体格スケール
-    //
-    // 肩幅＋腰幅を利用
-    // ==================================================
-
-    function getBodyScale(frame) {
-
-        const leftShoulder =
-            getPoint(
-                frame,
-                11
-            );
-
-
-        const rightShoulder =
-            getPoint(
-                frame,
-                12
-            );
-
-
-        const leftHip =
-            getPoint(
-                frame,
-                23
-            );
-
-
-        const rightHip =
-            getPoint(
-                frame,
-                24
-            );
-
-
-        const values = [];
-
-
-        if (
-            leftShoulder &&
-            rightShoulder
-        ) {
-
-            values.push(
-                Math.abs(
-                    leftShoulder.x -
-                    rightShoulder.x
-                )
-            );
-
-        }
-
-
-        if (
-            leftHip &&
-            rightHip
-        ) {
-
-            values.push(
-                Math.abs(
-                    leftHip.x -
-                    rightHip.x
-                )
-            );
-
-        }
-
-
-        if (
-            values.length === 0
-        ) {
-
-            return 0.3;
-
-        }
-
-
-        const average =
-            values.reduce(
-                (a, b) => a + b,
-                0
-            ) /
-            values.length;
-
-
-        if (
-            !Number.isFinite(
-                average
-            ) ||
-            average <= 0.01
-        ) {
-
-            return 0.3;
-
-        }
-
-
-        return average;
-
-    }
-
-
-
-    // ==================================================
-    // ① 腰の最高点
-    //
-    // MediaPipeではYが小さいほど上
-    // ==================================================
-
-    let highestHip = 0;
-
-    let minHipY = Infinity;
-
-
-    frames.forEach(
-        (frame, index) => {
-
-            const hip =
-                getHipCenter(
-                    frame
-                );
-
-
-            if (!hip) {
-                return;
-            }
-
-
-            if (
-                Number.isFinite(
-                    hip.y
-                ) &&
-                hip.y < minHipY
-            ) {
-
-                minHipY =
-                    hip.y;
-
-                highestHip =
-                    index;
-
-            }
-
-        }
-    );
-
-
-
-    // ==================================================
-    // ② 踏切候補
-    //
-    // 足首Yが大きく変化する前後を確認
-    // ==================================================
-
-    let takeOff = 0;
-
-    let maxFootChange = 0;
-
-
-    for (
-        let i = 1;
-        i < frames.length;
-        i++
+    if (
+        !left ||
+        !right
     ) {
 
-        const prevLeft =
-            getPoint(
-                frames[i - 1],
-                27
-            );
-
-
-        const prevRight =
-            getPoint(
-                frames[i - 1],
-                28
-            );
-
-
-        const left =
-            getPoint(
-                frames[i],
-                27
-            );
-
-
-        const right =
-            getPoint(
-                frames[i],
-                28
-            );
-
-
-        if (
-            !prevLeft ||
-            !prevRight ||
-            !left ||
-            !right
-        ) {
-
-            continue;
-
-        }
-
-
-        const previousY =
-            (
-                prevLeft.y +
-                prevRight.y
-            ) / 2;
-
-
-        const currentY =
-            (
-                left.y +
-                right.y
-            ) / 2;
-
-
-        const change =
-            Math.abs(
-                currentY -
-                previousY
-            );
-
-
-        if (
-            change >
-            maxFootChange
-        ) {
-
-            maxFootChange =
-                change;
-
-            takeOff =
-                i;
-
-        }
+        return null;
 
     }
 
 
+    return {
 
-    // ==================================================
-    // ③ 着手候補検出
+        x:
+            (
+                Number(left.x) +
+                Number(right.x)
+            ) / 2,
+
+        y:
+            (
+                Number(left.y) +
+                Number(right.y)
+            ) / 2
+
+    };
+
+}
+
+
+
+// ==================================================
+// 体格スケール
+// ==================================================
+
+function phaseGetBodyScale(frame) {
+
+    const leftShoulder =
+        phaseGetPoint(
+            frame,
+            11
+        );
+
+
+    const rightShoulder =
+        phaseGetPoint(
+            frame,
+            12
+        );
+
+
+    const leftHip =
+        phaseGetPoint(
+            frame,
+            23
+        );
+
+
+    const rightHip =
+        phaseGetPoint(
+            frame,
+            24
+        );
+
+
+    const values = [];
+
+
+    if (
+        leftShoulder &&
+        rightShoulder
+    ) {
+
+        values.push(
+            Math.abs(
+                Number(leftShoulder.x) -
+                Number(rightShoulder.x)
+            )
+        );
+
+    }
+
+
+    if (
+        leftHip &&
+        rightHip
+    ) {
+
+        values.push(
+            Math.abs(
+                Number(leftHip.x) -
+                Number(rightHip.x)
+            )
+        );
+
+    }
+
+
+    if (
+        values.length === 0
+    ) {
+
+        return 0.3;
+
+    }
+
+
+    const result =
+        values.reduce(
+            (a, b) => a + b,
+            0
+        ) /
+        values.length;
+
+
+    if (
+        !Number.isFinite(result) ||
+        result <= 0.01
+    ) {
+
+        return 0.3;
+
+    }
+
+
+    return result;
+
+}
+
+
+
+// ==================================================
+// 着手候補を作る
+//
+// 今回は「候補が存在するか」を最優先。
+// 採点基準はここでは変更しない。
+// ==================================================
+
+function phaseFindHandCandidates(
+    frames,
+    takeOffIndex,
+    highestHipIndex
+) {
+
+    const candidates = [];
+
+
+    // ----------------------------------------------
+    // 探索範囲
     //
-    // 手首Xの「前方への移動」を利用
-    //
-    // 今回は候補をすべて保存する
-    // ==================================================
+    // 踏切～最高点
+    // ----------------------------------------------
 
-    const handCandidates = [];
+    let start =
+        Math.max(
+            0,
+            takeOffIndex
+        );
 
+
+    let end =
+        Math.min(
+            frames.length - 1,
+            highestHipIndex
+        );
+
+
+    // ----------------------------------------------
+    // 万一、範囲がおかしい場合
+    // ----------------------------------------------
+
+    if (
+        end <= start
+    ) {
+
+        start = 0;
+
+        end =
+            frames.length - 1;
+
+    }
+
+
+    // ----------------------------------------------
+    // 全フレームから手首情報を取得
+    // ----------------------------------------------
 
     for (
-        let i = 1;
-        i < frames.length;
+        let i = start;
+        i <= end;
         i++
     ) {
 
@@ -467,43 +339,30 @@ function detectPhases(frames) {
             frames[i];
 
 
-        const previous =
-            frames[i - 1];
-
-
-        const left =
-            getPoint(
+        const leftWrist =
+            phaseGetPoint(
                 frame,
                 15
             );
 
 
-        const right =
-            getPoint(
+        const rightWrist =
+            phaseGetPoint(
                 frame,
                 16
             );
 
 
-        const previousLeft =
-            getPoint(
-                previous,
-                15
-            );
-
-
-        const previousRight =
-            getPoint(
-                previous,
-                16
+        const hip =
+            phaseGetHipCenter(
+                frame
             );
 
 
         if (
-            !left ||
-            !right ||
-            !previousLeft ||
-            !previousRight
+            !leftWrist ||
+            !rightWrist ||
+            !hip
         ) {
 
             continue;
@@ -511,40 +370,8 @@ function detectPhases(frames) {
         }
 
 
-        const handX =
-            (
-                left.x +
-                right.x
-            ) / 2;
-
-
-        const previousHandX =
-            (
-                previousLeft.x +
-                previousRight.x
-            ) / 2;
-
-
-        const movement =
-            Math.abs(
-                handX -
-                previousHandX
-            );
-
-
-        const hip =
-            getHipCenter(
-                frame
-            );
-
-
-        if (!hip) {
-            continue;
-        }
-
-
         const scale =
-            getBodyScale(
+            phaseGetBodyScale(
                 frame
             );
 
@@ -559,7 +386,21 @@ function detectPhases(frames) {
         }
 
 
-        const distance =
+        const handX =
+            (
+                Number(leftWrist.x) +
+                Number(rightWrist.x)
+            ) / 2;
+
+
+        const handY =
+            (
+                Number(leftWrist.y) +
+                Number(rightWrist.y)
+            ) / 2;
+
+
+        const normalizedDistance =
             Math.abs(
                 handX -
                 hip.x
@@ -568,35 +409,216 @@ function detectPhases(frames) {
 
 
         if (
-            Number.isFinite(
-                distance
+            !Number.isFinite(
+                normalizedDistance
             )
         ) {
 
-            handCandidates.push({
+            continue;
 
-                index:
-                    i,
+        }
 
-                frame:
-                    getFrameNumber(
-                        frame,
-                        i
-                    ),
 
-                movement:
-                    movement,
+        // ------------------------------------------
+        // 前後フレームとの差
+        // ------------------------------------------
 
-                distance:
-                    distance,
+        let movement = 0;
 
-                handX:
-                    handX,
 
-                hipX:
-                    hip.x
+        if (i > start) {
 
-            });
+            const previous =
+                frames[i - 1];
+
+
+            const previousLeft =
+                phaseGetPoint(
+                    previous,
+                    15
+                );
+
+
+            const previousRight =
+                phaseGetPoint(
+                    previous,
+                    16
+                );
+
+
+            if (
+                previousLeft &&
+                previousRight
+            ) {
+
+                const previousX =
+                    (
+                        Number(
+                            previousLeft.x
+                        ) +
+                        Number(
+                            previousRight.x
+                        )
+                    ) / 2;
+
+
+                movement =
+                    Math.abs(
+                        handX -
+                        previousX
+                    );
+
+            }
+
+        }
+
+
+        // ------------------------------------------
+        // 候補として保存
+        // ------------------------------------------
+
+        candidates.push({
+
+            index:
+                i,
+
+            frame:
+                phaseGetFrameNumber(
+                    frame,
+                    i
+                ),
+
+            handX:
+                handX,
+
+            handY:
+                handY,
+
+            hipX:
+                hip.x,
+
+            hipY:
+                hip.y,
+
+            distance:
+                normalizedDistance,
+
+            movement:
+                movement
+
+        });
+
+    }
+
+
+    return candidates;
+
+}
+
+
+
+// ==================================================
+// メイン
+// ==================================================
+
+function detectPhases(frames) {
+
+    console.log(
+        "===================================="
+    );
+
+    console.log(
+        "phase.js Ver6.3 起動"
+    );
+
+    console.log(
+        "detectPhases() 実行"
+    );
+
+    console.log(
+        "===================================="
+    );
+
+
+    // ==================================================
+    // フレーム確認
+    // ==================================================
+
+    if (
+        !Array.isArray(frames)
+    ) {
+
+        console.error(
+            "phase.js: framesが配列ではありません",
+            frames
+        );
+
+        return null;
+
+    }
+
+
+    console.log(
+        "phase.js フレーム数:",
+        frames.length
+    );
+
+
+    if (
+        frames.length < 20
+    ) {
+
+        console.error(
+            "phase.js: フレーム不足"
+        );
+
+        return null;
+
+    }
+
+
+
+    // ==================================================
+    // ① 腰の最高点
+    // ==================================================
+
+    let highestHipIndex = 0;
+
+    let minimumHipY =
+        Infinity;
+
+
+    for (
+        let i = 0;
+        i < frames.length;
+        i++
+    ) {
+
+        const hip =
+            phaseGetHipCenter(
+                frames[i]
+            );
+
+
+        if (!hip) {
+
+            continue;
+
+        }
+
+
+        if (
+            Number.isFinite(
+                hip.y
+            ) &&
+            hip.y < minimumHipY
+        ) {
+
+            minimumHipY =
+                hip.y;
+
+            highestHipIndex =
+                i;
 
         }
 
@@ -605,89 +627,167 @@ function detectPhases(frames) {
 
 
     // ==================================================
-    // 着手候補を「踏切後～最高点前」に限定
-    //
-    // 開脚跳びでは
-    // 踏切 → 着手 → 最高点
-    // の順になるため
+    // ② 踏切検出
     // ==================================================
 
-    const validHandCandidates =
-        handCandidates.filter(
-            candidate => {
+    let takeOffIndex = 0;
 
-                return (
-                    candidate.index >=
-                    takeOff
-                    &&
-                    candidate.index <=
-                    highestHip
-                );
-
-            }
-        );
+    let largestFootMovement = 0;
 
 
-
-    // ==================================================
-    // 候補がない場合
-    // 広い範囲から再検索
-    // ==================================================
-
-    let finalHandCandidates =
-        validHandCandidates;
-
-
-    if (
-        finalHandCandidates.length === 0
+    for (
+        let i = 1;
+        i < frames.length;
+        i++
     ) {
 
-        finalHandCandidates =
-            handCandidates;
+        const previousLeft =
+            phaseGetPoint(
+                frames[i - 1],
+                27
+            );
+
+
+        const previousRight =
+            phaseGetPoint(
+                frames[i - 1],
+                28
+            );
+
+
+        const currentLeft =
+            phaseGetPoint(
+                frames[i],
+                27
+            );
+
+
+        const currentRight =
+            phaseGetPoint(
+                frames[i],
+                28
+            );
+
+
+        if (
+            !previousLeft ||
+            !previousRight ||
+            !currentLeft ||
+            !currentRight
+        ) {
+
+            continue;
+
+        }
+
+
+        const previousY =
+            (
+                Number(previousLeft.y) +
+                Number(previousRight.y)
+            ) / 2;
+
+
+        const currentY =
+            (
+                Number(currentLeft.y) +
+                Number(currentRight.y)
+            ) / 2;
+
+
+        const movement =
+            Math.abs(
+                currentY -
+                previousY
+            );
+
+
+        if (
+            movement >
+            largestFootMovement
+        ) {
+
+            largestFootMovement =
+                movement;
+
+            takeOffIndex =
+                i;
+
+        }
 
     }
 
 
 
     // ==================================================
-    // 着手フレーム決定
-    //
-    // 「手が最も前に出た瞬間」を基本とする
-    //
-    // X座標の最大値ではなく、
-    // 踏切後の手の移動量を考慮
+    // ③ 着手候補
     // ==================================================
 
-    let handContact = 0;
-
-
-    if (
-        finalHandCandidates.length > 0
-    ) {
-
-        let best =
-            finalHandCandidates[0];
-
-
-        finalHandCandidates.forEach(
-            candidate => {
-
-                // 手の前方移動量を優先
-                if (
-                    candidate.movement >
-                    best.movement
-                ) {
-
-                    best =
-                        candidate;
-
-                }
-
-            }
+    const handCandidates =
+        phaseFindHandCandidates(
+            frames,
+            takeOffIndex,
+            highestHipIndex
         );
 
 
-        handContact =
+    console.log(
+        "------------------------------------"
+    );
+
+    console.log(
+        "着手候補数:",
+        handCandidates.length
+    );
+
+    console.log(
+        "着手候補:",
+        handCandidates
+    );
+
+
+
+    // ==================================================
+    // ④ 着手フレーム選択
+    //
+    // 「手の移動量」が最大の候補を基本採用
+    // ==================================================
+
+    let handContactIndex = 0;
+
+
+    if (
+        handCandidates.length > 0
+    ) {
+
+        let best =
+            handCandidates[0];
+
+
+        for (
+            let i = 1;
+            i < handCandidates.length;
+            i++
+        ) {
+
+            const candidate =
+                handCandidates[i];
+
+
+            if (
+                candidate.movement >
+                best.movement
+            ) {
+
+                best =
+                    candidate;
+
+            }
+
+        }
+
+
+        handContactIndex =
             best.index;
 
     }
@@ -695,44 +795,43 @@ function detectPhases(frames) {
 
 
     // ==================================================
-    // ④ 着地
-    //
-    // 最後の有効フレームを基本とする
+    // ⑤ 着地
     // ==================================================
 
-    let landing =
+    let landingIndex =
         frames.length - 1;
 
 
 
     // ==================================================
-    // 着地候補を探す
-    //
-    // 足首が下方向へ戻り、
-    // その後ある程度安定する場所
+    // 着地候補
     // ==================================================
 
     const landingCandidates = [];
 
 
-    for (
-        let i = Math.max(
-            highestHip,
-            handContact
+    const landingStart =
+        Math.max(
+            handContactIndex,
+            highestHipIndex
         );
+
+
+    for (
+        let i = landingStart;
         i < frames.length;
         i++
     ) {
 
         const left =
-            getPoint(
+            phaseGetPoint(
                 frames[i],
                 27
             );
 
 
         const right =
-            getPoint(
+            phaseGetPoint(
                 frames[i],
                 28
             );
@@ -750,8 +849,8 @@ function detectPhases(frames) {
 
         const footY =
             (
-                left.y +
-                right.y
+                Number(left.y) +
+                Number(right.y)
             ) / 2;
 
 
@@ -767,7 +866,7 @@ function detectPhases(frames) {
                     i,
 
                 frame:
-                    getFrameNumber(
+                    phaseGetFrameNumber(
                         frames[i],
                         i
                     ),
@@ -782,17 +881,11 @@ function detectPhases(frames) {
     }
 
 
-
-    // ==================================================
-    // 着地候補の中から
-    // 後半の安定したフレームを採用
-    // ==================================================
-
     if (
         landingCandidates.length > 0
     ) {
 
-        landing =
+        landingIndex =
             landingCandidates[
                 landingCandidates.length - 1
             ].index;
@@ -802,46 +895,53 @@ function detectPhases(frames) {
 
 
     // ==================================================
-    // 結果
+    // ⑥ 結果
     // ==================================================
 
     const result = {
 
         takeOff:
-            getFrameNumber(
-                frames[takeOff],
-                takeOff
+            phaseGetFrameNumber(
+                frames[takeOffIndex],
+                takeOffIndex
             ),
 
         handContact:
-            getFrameNumber(
-                frames[handContact],
-                handContact
+            phaseGetFrameNumber(
+                frames[handContactIndex],
+                handContactIndex
             ),
 
         highestHip:
-            getFrameNumber(
-                frames[highestHip],
-                highestHip
+            phaseGetFrameNumber(
+                frames[highestHipIndex],
+                highestHipIndex
             ),
 
         landing:
-            getFrameNumber(
-                frames[landing],
-                landing
+            phaseGetFrameNumber(
+                frames[landingIndex],
+                landingIndex
             ),
 
 
         // ----------------------------------------------
-        // デバッグ用
+        // 着手候補データ
         // ----------------------------------------------
 
         handCandidateCount:
-            finalHandCandidates.length,
+            handCandidates.length,
+
+
+        selectedHandFrame:
+            phaseGetFrameNumber(
+                frames[handContactIndex],
+                handContactIndex
+            ),
 
 
         handCandidates:
-            finalHandCandidates.map(
+            handCandidates.map(
                 candidate => ({
 
                     frame:
@@ -850,24 +950,17 @@ function detectPhases(frames) {
                     index:
                         candidate.index,
 
-                    movement:
-                        Number(
-                            candidate.movement.toFixed(4)
-                        ),
-
                     distance:
                         Number(
                             candidate.distance.toFixed(3)
+                        ),
+
+                    movement:
+                        Number(
+                            candidate.movement.toFixed(4)
                         )
 
                 })
-            ),
-
-
-        selectedHandFrame:
-            getFrameNumber(
-                frames[handContact],
-                handContact
             )
 
     };
@@ -875,68 +968,54 @@ function detectPhases(frames) {
 
 
     // ==================================================
-    // コンソール表示
+    // コンソール確認
     // ==================================================
 
     console.log(
-        "========== PHASE Ver6.1 =========="
+        "===================================="
     );
-
 
     console.log(
-        "総フレーム:",
-        frames.length
+        "phase.js Ver6.3 結果"
     );
-
 
     console.log(
         "踏切:",
         result.takeOff
     );
 
-
     console.log(
         "着手:",
         result.handContact
     );
-
 
     console.log(
         "最高点:",
         result.highestHip
     );
 
-
     console.log(
         "着地:",
         result.landing
     );
-
 
     console.log(
         "着手候補数:",
         result.handCandidateCount
     );
 
-
-    console.log(
-        "着手候補:",
-        result.handCandidates
-    );
-
-
     console.log(
         "選択着手フレーム:",
         result.selectedHandFrame
     );
 
-
     console.log(
-        "=================================="
+        "===================================="
     );
 
 
     return result;
+
 }
 
 
@@ -950,5 +1029,5 @@ window.detectPhases =
 
 
 console.log(
-    "phase.js Ver6.1 読み込み成功"
+    "phase.js Ver6.3 読み込み成功"
 );
