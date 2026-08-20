@@ -1,15 +1,16 @@
 // ==================================================
 // 跳び箱AI採点システム
-// phase.js Ver6.6
+// phase.js Ver6.7
 // 着手判定 改良版
 //
-// Ver6.6 改良内容
-// ・候補を厳しく絞りすぎない
-// ・着手前後の変化を総合評価
-// ・急変だけで着手を決定しない
-// ・候補を広く残して順位付け
-// ・成功①・成功②・普通の比較用データを維持
-// ・score.js / app.js との互換性を維持
+// Ver6.7
+// ・踏切前の誤候補を除外
+// ・最高点後の誤候補を除外
+// ・着手探索範囲を動作フェーズで限定
+// ・単純な移動量最大を使用しない
+// ・着手前後の変化を評価
+// ・候補を適正数に整理
+// ・score.js / app.jsとの互換性維持
 // ==================================================
 
 
@@ -29,9 +30,7 @@ function phaseGetPoint(frame, index) {
 
     for (const source of sources) {
 
-        if (!Array.isArray(source)) {
-            continue;
-        }
+        if (!Array.isArray(source)) continue;
 
         const p = source[index];
 
@@ -58,16 +57,11 @@ function phaseGetPoint(frame, index) {
 // フレーム番号
 // ==================================================
 
-function phaseGetFrameNumber(
-    frame,
-    index
-) {
+function phaseGetFrameNumber(frame, index) {
 
     if (
         frame &&
-        Number.isFinite(
-            Number(frame.frame)
-        )
+        Number.isFinite(Number(frame.frame))
     ) {
 
         return Number(frame.frame);
@@ -90,31 +84,17 @@ function phaseGetHipCenter(frame) {
     const right =
         phaseGetPoint(frame, 24);
 
-    if (
-        !left ||
-        !right
-    ) {
-
+    if (!left || !right) {
         return null;
-
     }
 
     return {
-
         x:
-            (
-                left.x +
-                right.x
-            ) / 2,
+            (left.x + right.x) / 2,
 
         y:
-            (
-                left.y +
-                right.y
-            ) / 2
-
+            (left.y + right.y) / 2
     };
-
 }
 
 
@@ -144,21 +124,17 @@ function phaseGetBodyScale(frame) {
         rightShoulder
     ) {
 
-        const shoulderWidth =
+        const value =
             Math.abs(
                 leftShoulder.x -
                 rightShoulder.x
             );
 
         if (
-            Number.isFinite(
-                shoulderWidth
-            )
+            Number.isFinite(value)
         ) {
 
-            values.push(
-                shoulderWidth
-            );
+            values.push(value);
 
         }
 
@@ -170,21 +146,17 @@ function phaseGetBodyScale(frame) {
         rightHip
     ) {
 
-        const hipWidth =
+        const value =
             Math.abs(
                 leftHip.x -
                 rightHip.x
             );
 
         if (
-            Number.isFinite(
-                hipWidth
-            )
+            Number.isFinite(value)
         ) {
 
-            values.push(
-                hipWidth
-            );
+            values.push(value);
 
         }
 
@@ -204,13 +176,12 @@ function phaseGetBodyScale(frame) {
         values.reduce(
             (a, b) => a + b,
             0
-        ) /
-        values.length;
+        ) / values.length;
 
 
     if (
         !Number.isFinite(result) ||
-        result <= 0.01
+        result < 0.01
     ) {
 
         return 0.3;
@@ -219,7 +190,6 @@ function phaseGetBodyScale(frame) {
 
 
     return result;
-
 }
 
 
@@ -235,31 +205,17 @@ function phaseGetHandCenter(frame) {
     const right =
         phaseGetPoint(frame, 16);
 
-    if (
-        !left ||
-        !right
-    ) {
-
+    if (!left || !right) {
         return null;
-
     }
 
     return {
-
         x:
-            (
-                left.x +
-                right.x
-            ) / 2,
+            (left.x + right.x) / 2,
 
         y:
-            (
-                left.y +
-                right.y
-            ) / 2
-
+            (left.y + right.y) / 2
     };
-
 }
 
 
@@ -275,36 +231,22 @@ function phaseGetFootCenter(frame) {
     const right =
         phaseGetPoint(frame, 28);
 
-    if (
-        !left ||
-        !right
-    ) {
-
+    if (!left || !right) {
         return null;
-
     }
 
     return {
-
         x:
-            (
-                left.x +
-                right.x
-            ) / 2,
+            (left.x + right.x) / 2,
 
         y:
-            (
-                left.y +
-                right.y
-            ) / 2
-
+            (left.y + right.y) / 2
     };
-
 }
 
 
 // ==================================================
-// 手のデータ作成
+// 手データ
 // ==================================================
 
 function phaseBuildHandData(
@@ -321,15 +263,6 @@ function phaseBuildHandData(
         i <= end;
         i++
     ) {
-
-        if (
-            !frames[i]
-        ) {
-
-            continue;
-
-        }
-
 
         const hand =
             phaseGetHandCenter(
@@ -359,13 +292,11 @@ function phaseBuildHandData(
         }
 
 
-        // 手と腰の水平距離
         const distance =
             Math.abs(
                 hand.x -
                 hip.x
-            ) /
-            scale;
+            ) / scale;
 
 
         data.push({
@@ -399,23 +330,89 @@ function phaseBuildHandData(
 
 
     return data;
-
 }
 
 
 // ==================================================
-// 着手候補検出 Ver6.6
+// 着手探索範囲
 //
-// ポイント
+// 踏切後～最高点までの範囲だけを使う
 //
-// ① 候補を広く残す
-// ② 手の位置
-// ③ 手の移動
-// ④ 移動速度の変化
-// ⑤ 前後の安定
-// ⑥ 腰との位置関係
-//
-// を総合評価する
+// 前後に少し余裕を持たせる
+// ==================================================
+
+function phaseGetHandSearchRange(
+    frames,
+    takeOffIndex,
+    highestHipIndex
+) {
+
+    const total =
+        frames.length;
+
+
+    let start =
+        Math.floor(
+            takeOffIndex +
+            (highestHipIndex - takeOffIndex)
+            * 0.15
+        );
+
+
+    let end =
+        Math.floor(
+            takeOffIndex +
+            (highestHipIndex - takeOffIndex)
+            * 0.85
+        );
+
+
+    // 最低限の探索範囲
+
+    if (
+        end - start < 8
+    ) {
+
+        start =
+            Math.max(
+                1,
+                takeOffIndex + 1
+            );
+
+        end =
+            Math.min(
+                total - 2,
+                highestHipIndex
+            );
+
+    }
+
+
+    // 安全範囲
+
+    start =
+        Math.max(
+            1,
+            start
+        );
+
+
+    end =
+        Math.min(
+            total - 2,
+            end
+        );
+
+
+    return {
+        start,
+        end
+    };
+}
+
+
+// ==================================================
+// 着手候補検出 Ver6.7
 // ==================================================
 
 function phaseFindHandCandidates(
@@ -427,41 +424,27 @@ function phaseFindHandCandidates(
     const candidates = [];
 
 
-    // ------------------------------------------------
-    // 探索範囲
-    // ------------------------------------------------
-
-    let start =
-        Math.max(
-            0,
-            takeOffIndex
-        );
-
-    let end =
-        Math.min(
-            frames.length - 1,
+    const range =
+        phaseGetHandSearchRange(
+            frames,
+            takeOffIndex,
             highestHipIndex
         );
 
 
-    // 範囲が狭すぎる場合
-    if (
-        end - start < 8
-    ) {
-
-        start = 0;
-
-        end =
-            frames.length - 1;
-
-    }
+    console.log(
+        "着手探索範囲:",
+        range.start,
+        "～",
+        range.end
+    );
 
 
     const handData =
         phaseBuildHandData(
             frames,
-            start,
-            end
+            range.start - 2,
+            range.end + 2
         );
 
 
@@ -474,11 +457,9 @@ function phaseFindHandCandidates(
     }
 
 
-    // ------------------------------------------------
-    // 候補を作る
-    //
-    // 今回は「急変したフレーム」だけに限定しない
-    // ------------------------------------------------
+    // ==================================================
+    // 各フレームを評価
+    // ==================================================
 
     for (
         let i = 2;
@@ -486,14 +467,14 @@ function phaseFindHandCandidates(
         i++
     ) {
 
-        const before2 =
-            handData[i - 2];
+        const current =
+            handData[i];
 
         const before1 =
             handData[i - 1];
 
-        const current =
-            handData[i];
+        const before2 =
+            handData[i - 2];
 
         const after1 =
             handData[i + 1];
@@ -502,172 +483,187 @@ function phaseFindHandCandidates(
             handData[i + 2];
 
 
-        // ============================================
-        // 手の移動量
-        // ============================================
+        if (
+            current.index < range.start ||
+            current.index > range.end
+        ) {
 
-        const moveBefore =
+            continue;
+
+        }
+
+
+        // ==================================================
+        // 手のX方向移動
+        // ==================================================
+
+        const move1 =
+            current.handX -
+            before1.handX;
+
+        const move2 =
+            before1.handX -
+            before2.handX;
+
+        const move3 =
+            after1.handX -
+            current.handX;
+
+        const move4 =
+            after2.handX -
+            after1.handX;
+
+
+        // ==================================================
+        // 移動量
+        // ==================================================
+
+        const absMove1 =
+            Math.abs(move1);
+
+        const absMove2 =
+            Math.abs(move2);
+
+        const absMove3 =
+            Math.abs(move3);
+
+        const absMove4 =
+            Math.abs(move4);
+
+
+        // ==================================================
+        // 前後の平均
+        // ==================================================
+
+        const beforeMovement =
+            (
+                absMove2 +
+                absMove1
+            ) / 2;
+
+
+        const afterMovement =
+            (
+                absMove3 +
+                absMove4
+            ) / 2;
+
+
+        // ==================================================
+        // 速度変化
+        // ==================================================
+
+        const speedChange =
             Math.abs(
-                current.handX -
+                beforeMovement -
+                afterMovement
+            );
+
+
+        // ==================================================
+        // 方向変化
+        // ==================================================
+
+        let directionChange = 0;
+
+
+        if (
+            move1 * move3 < 0
+        ) {
+
+            directionChange = 1;
+
+        }
+
+
+        // ==================================================
+        // 着手前後の位置変化
+        // ==================================================
+
+        const positionChange =
+            Math.abs(
+                after1.handX -
                 before1.handX
             );
 
 
-        const moveAfter =
-            Math.abs(
-                after1.handX -
-                current.handX
-            );
-
-
-        // ============================================
-        // さらに前の移動
-        // ============================================
-
-        const moveBefore2 =
-            Math.abs(
-                before1.handX -
-                before2.handX
-            );
-
-
-        // ============================================
-        // さらに後の移動
-        // ============================================
-
-        const moveAfter2 =
-            Math.abs(
-                after2.handX -
-                after1.handX
-            );
-
-
-        // ============================================
-        // 移動速度の変化
-        // ============================================
-
-        const speedChange =
-            Math.abs(
-                moveBefore -
-                moveAfter
-            );
-
-
-        // ============================================
-        // 前後の平均移動
-        // ============================================
-
-        const averageMovement =
-            (
-                moveBefore2 +
-                moveBefore +
-                moveAfter +
-                moveAfter2
-            ) / 4;
-
-
-        // ============================================
-        // 着手前後の変化
-        // ============================================
-
-        const eventChange =
-            Math.abs(
-                moveBefore -
-                moveAfter2
-            );
-
-
-        // ============================================
-        // 着手後の安定性
-        // ============================================
+        // ==================================================
+        // 着手後安定
+        // ==================================================
 
         const stability =
             (
-                moveAfter +
-                moveAfter2
+                absMove3 +
+                absMove4
             ) / 2;
 
 
-        // ============================================
-        // 手と腰の距離
-        // ============================================
+        // ==================================================
+        // 腰との距離
+        // ==================================================
 
         const distance =
             current.distance;
 
 
-        // ============================================
+        // ==================================================
         // スコア
-        // ============================================
+        // ==================================================
 
         let score = 0;
 
 
-        // --------------------------------------------
-        // 手の移動
-        // --------------------------------------------
-
+        // 手が動いている
         score +=
-            averageMovement * 8;
+            beforeMovement * 8;
 
 
-        // --------------------------------------------
         // 着手前後の速度変化
-        // --------------------------------------------
-
         score +=
-            speedChange * 5;
+            speedChange * 10;
 
 
-        // --------------------------------------------
-        // イベント変化
-        // --------------------------------------------
-
+        // 方向変化
         score +=
-            eventChange * 3;
+            directionChange * 0.8;
 
 
-        // --------------------------------------------
-        // 手が腰より前にある
-        // --------------------------------------------
-
+        // 手が前に出ている
         score +=
             Math.min(
                 distance,
                 1.5
-            ) * 0.5;
+            ) * 0.25;
 
 
-        // --------------------------------------------
-        // 極端に動かない候補を減点
-        // --------------------------------------------
+        // 着手後の安定
+        score +=
+            Math.max(
+                0,
+                0.12 - stability
+            ) * 3;
 
+
+        // 動きがほとんどない場合
         if (
-            averageMovement < 0.002
+            beforeMovement < 0.003
         ) {
 
-            score -= 0.5;
+            score -= 1;
 
         }
 
 
-        // --------------------------------------------
-        // 着手後に極端に動く候補を減点
-        // --------------------------------------------
-
+        // 着手後も激しく動く場合
         if (
-            stability > 0.15
+            stability > 0.12
         ) {
 
             score -=
-                stability * 1.5;
+                stability * 2;
 
         }
 
-
-        // --------------------------------------------
-        // 候補登録
-        // --------------------------------------------
 
         candidates.push({
 
@@ -677,32 +673,26 @@ function phaseFindHandCandidates(
             frame:
                 current.frame,
 
-            handX:
-                current.handX,
-
-            handY:
-                current.handY,
-
             distance:
                 distance,
 
             moveBefore:
-                moveBefore,
+                beforeMovement,
 
             moveAfter:
-                moveAfter,
+                afterMovement,
 
             speedChange:
                 speedChange,
 
-            eventChange:
-                eventChange,
+            directionChange:
+                directionChange,
+
+            positionChange:
+                positionChange,
 
             stability:
                 stability,
-
-            averageMovement:
-                averageMovement,
 
             score:
                 score
@@ -713,10 +703,7 @@ function phaseFindHandCandidates(
 
 
     // ==================================================
-    // 候補数を確保
-    //
-    // Ver6.5では1候補になったため、
-    // Ver6.6では上位候補を最低限残す。
+    // スコア順
     // ==================================================
 
     candidates.sort(
@@ -727,23 +714,18 @@ function phaseFindHandCandidates(
 
 
     // ==================================================
-    // 上位候補数
+    // 上位候補を残す
     //
-    // 最大30候補
-    // 最低3候補
+    // 最大15候補
     // ==================================================
 
-    const maxCandidates =
-        Math.min(
-            30,
-            candidates.length
-        );
-
-
-    const selectedCandidates =
+    const limited =
         candidates.slice(
             0,
-            maxCandidates
+            Math.min(
+                15,
+                candidates.length
+            )
         );
 
 
@@ -751,23 +733,22 @@ function phaseFindHandCandidates(
     // フレーム順に戻す
     // ==================================================
 
-    selectedCandidates.sort(
+    limited.sort(
         (a, b) =>
             a.index -
             b.index
     );
 
 
-    return selectedCandidates;
-
+    return limited;
 }
 
 
 // ==================================================
 // 着手選択
 //
-// 「最高スコアだけ」ではなく、
-// 前後のまとまりも確認する
+// 「最も高いスコア」だけではなく、
+// 前後の候補との距離も確認
 // ==================================================
 
 function phaseSelectHandCandidate(
@@ -784,43 +765,82 @@ function phaseSelectHandCandidate(
     }
 
 
-    // ------------------------------------------------
-    // 候補の中でスコアが最大
-    // ------------------------------------------------
+    // ==================================================
+    // 候補を再評価
+    // ==================================================
 
-    let best =
-        candidates[0];
-
-
-    for (
-        let i = 1;
-        i < candidates.length;
-        i++
-    ) {
-
-        const candidate =
-            candidates[i];
+    const scored = [];
 
 
-        // --------------------------------------------
-        // 基本はイベントスコア
-        // --------------------------------------------
+    candidates.forEach(
+        candidate => {
 
-        if (
-            candidate.score >
-            best.score
-        ) {
+            let finalScore =
+                candidate.score;
 
-            best =
-                candidate;
+
+            // ------------------------------------------
+            // 動画の最初・最後を避ける
+            // ------------------------------------------
+
+            if (
+                candidate.index < 3
+            ) {
+
+                finalScore -= 5;
+
+            }
+
+
+            // ------------------------------------------
+            // 着手候補同士の孤立を避ける
+            // ------------------------------------------
+
+            const nearby =
+                candidates.filter(
+                    other =>
+                        Math.abs(
+                            other.index -
+                            candidate.index
+                        ) <= 2
+                );
+
+
+            if (
+                nearby.length >= 2
+            ) {
+
+                finalScore += 1;
+
+            }
+
+
+            scored.push({
+
+                candidate:
+                    candidate,
+
+                finalScore:
+                    finalScore
+
+            });
 
         }
+    );
 
-    }
+
+    // ==================================================
+    // 最大を選択
+    // ==================================================
+
+    scored.sort(
+        (a, b) =>
+            b.finalScore -
+            a.finalScore
+    );
 
 
-    return best;
-
+    return scored[0].candidate;
 }
 
 
@@ -835,7 +855,7 @@ function detectPhases(frames) {
     );
 
     console.log(
-        "phase.js Ver6.6 起動"
+        "phase.js Ver6.7 起動"
     );
 
     console.log(
@@ -852,7 +872,21 @@ function detectPhases(frames) {
     ) {
 
         console.error(
-            "phase.js: framesが配列ではありません"
+            "framesが配列ではありません"
+        );
+
+        return null;
+
+    }
+
+
+    if (
+        frames.length < 20
+    ) {
+
+        console.error(
+            "フレーム不足:",
+            frames.length
         );
 
         return null;
@@ -861,26 +895,13 @@ function detectPhases(frames) {
 
 
     console.log(
-        "phase.js フレーム数:",
+        "総フレーム数:",
         frames.length
     );
 
 
-    if (
-        frames.length < 20
-    ) {
-
-        console.error(
-            "phase.js: フレーム不足"
-        );
-
-        return null;
-
-    }
-
-
     // ==================================================
-    // 最高点検出
+    // 最高点
     // ==================================================
 
     let highestHipIndex = 0;
@@ -902,9 +923,7 @@ function detectPhases(frames) {
 
 
         if (!hip) {
-
             continue;
-
         }
 
 
@@ -925,7 +944,7 @@ function detectPhases(frames) {
 
 
     // ==================================================
-    // 踏切検出
+    // 踏切
     // ==================================================
 
     let takeOffIndex = 0;
@@ -939,7 +958,7 @@ function detectPhases(frames) {
         i++
     ) {
 
-        const previous =
+        const before =
             phaseGetFootCenter(
                 frames[i - 1]
             );
@@ -951,7 +970,7 @@ function detectPhases(frames) {
 
 
         if (
-            !previous ||
+            !before ||
             !current
         ) {
 
@@ -963,7 +982,7 @@ function detectPhases(frames) {
         const movement =
             Math.abs(
                 current.y -
-                previous.y
+                before.y
             );
 
 
@@ -996,17 +1015,13 @@ function detectPhases(frames) {
 
 
     console.log(
-        "------------------------------------"
-    );
-
-    console.log(
         "着手候補数:",
         handCandidates.length
     );
 
 
     // ==================================================
-    // 着手選択
+    // 着手
     // ==================================================
 
     const selectedCandidate =
@@ -1015,7 +1030,8 @@ function detectPhases(frames) {
         );
 
 
-    let handContactIndex = 0;
+    let handContactIndex =
+        takeOffIndex;
 
 
     if (
@@ -1071,9 +1087,9 @@ function detectPhases(frames) {
             ),
 
 
-        // ------------------------------------------
+        // ==================================================
         // 着手デバッグ
-        // ------------------------------------------
+        // ==================================================
 
         handCandidateCount:
             handCandidates.length,
@@ -1096,9 +1112,9 @@ function detectPhases(frames) {
                 : 0,
 
 
-        // ------------------------------------------
+        // ==================================================
         // 候補一覧
-        // ------------------------------------------
+        // ==================================================
 
         handCandidates:
             handCandidates.map(
@@ -1133,19 +1149,17 @@ function detectPhases(frames) {
                             candidate.speedChange.toFixed(4)
                         ),
 
-                    eventChange:
+                    directionChange:
+                        candidate.directionChange,
+
+                    positionChange:
                         Number(
-                            candidate.eventChange.toFixed(4)
+                            candidate.positionChange.toFixed(4)
                         ),
 
                     stability:
                         Number(
                             candidate.stability.toFixed(4)
-                        ),
-
-                    averageMovement:
-                        Number(
-                            candidate.averageMovement.toFixed(4)
                         ),
 
                     score:
@@ -1160,7 +1174,7 @@ function detectPhases(frames) {
 
 
     // ==================================================
-    // コンソール表示
+    // デバッグ
     // ==================================================
 
     console.log(
@@ -1168,7 +1182,7 @@ function detectPhases(frames) {
     );
 
     console.log(
-        "phase.js Ver6.6 結果"
+        "phase.js Ver6.7 結果"
     );
 
     console.log(
@@ -1228,7 +1242,7 @@ function detectPhases(frames) {
                 "フレーム",
                 "実測値",
                 candidate.distance,
-                "イベントスコア",
+                "スコア",
                 candidate.score
             );
 
@@ -1242,7 +1256,6 @@ function detectPhases(frames) {
 
 
     return result;
-
 }
 
 
@@ -1255,5 +1268,5 @@ window.detectPhases =
 
 
 console.log(
-    "phase.js Ver6.6 読み込み成功"
+    "phase.js Ver6.7 読み込み成功"
 );
