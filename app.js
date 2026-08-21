@@ -1,14 +1,12 @@
 // ============================================================
 // 跳び箱AI採点システム
 // app.js 診断版
-// ============================================================
-// 目的
-// ・取得フレーム数を画面に表示
-// ・phase判定結果を画面に表示
-// ・着手候補数を画面に表示
-// ・選択着手フレームを画面に表示
-// ・着手位置実測値を画面に表示
-// ・DevTools / Console 不要
+//
+// 目的：
+// 「取得フレーム数が19で止まる」原因を画面上で特定する
+//
+// 採点ロジック(score.js)は変更しない
+// phase.jsも変更しない
 // ============================================================
 
 const videoFile = document.getElementById("videoFile");
@@ -26,70 +24,56 @@ const totalScore = document.getElementById("totalScore");
 let analyzing = false;
 let analysisFinished = false;
 
+let diagnosticTimer = null;
+let lastFrameCount = 0;
+let lastFrameChangeTime = 0;
+let analysisStartTime = 0;
+let lastVideoTime = 0;
+
 
 // ============================================================
-// 診断表示エリア
+// 診断画面を作る
 // ============================================================
 
 function getDiagnosticElement() {
 
-    let diagnostic =
-        document.getElementById("analysisDiagnostic");
+    let el = document.getElementById("diagnosticInfo");
 
-    if (!diagnostic) {
+    if (el) {
+        return el;
+    }
 
-        diagnostic =
-            document.createElement("div");
+    el = document.createElement("div");
 
-        diagnostic.id =
-            "analysisDiagnostic";
+    el.id = "diagnosticInfo";
 
-        diagnostic.style.marginTop =
-            "15px";
+    el.style.marginTop = "15px";
+    el.style.padding = "15px";
+    el.style.border = "3px solid #1976d2";
+    el.style.borderRadius = "10px";
+    el.style.background = "#f5faff";
+    el.style.fontSize = "16px";
+    el.style.lineHeight = "1.8";
 
-        diagnostic.style.padding =
-            "15px";
+    const phaseInfo =
+        document.getElementById("phaseInfo");
 
-        diagnostic.style.border =
-            "2px solid #1976d2";
+    if (phaseInfo && phaseInfo.parentElement) {
 
-        diagnostic.style.borderRadius =
-            "10px";
+        phaseInfo.parentElement.appendChild(el);
 
-        diagnostic.style.background =
-            "#f5f9ff";
+    } else {
 
-        diagnostic.style.fontSize =
-            "16px";
-
-        diagnostic.style.lineHeight =
-            "1.8";
-
-        const phaseInfo =
-            document.getElementById("phaseInfo");
-
-        if (phaseInfo && phaseInfo.parentElement) {
-
-            phaseInfo.parentElement.appendChild(
-                diagnostic
-            );
-
-        } else {
-
-            document.body.appendChild(
-                diagnostic
-            );
-
-        }
+        document.body.appendChild(el);
 
     }
 
-    return diagnostic;
+    return el;
 }
 
 
 // ============================================================
-// フェーズ表示エリア
+// フェーズ表示
 // ============================================================
 
 function getPhaseInfoElement() {
@@ -102,17 +86,11 @@ function getPhaseInfoElement() {
         phaseInfo =
             document.createElement("div");
 
-        phaseInfo.id =
-            "phaseInfo";
+        phaseInfo.id = "phaseInfo";
 
-        phaseInfo.style.marginTop =
-            "10px";
-
-        phaseInfo.style.padding =
-            "10px";
-
-        phaseInfo.style.borderRadius =
-            "8px";
+        phaseInfo.style.marginTop = "10px";
+        phaseInfo.style.padding = "10px";
+        phaseInfo.style.borderRadius = "8px";
 
         const parent =
             status.closest(".card");
@@ -141,333 +119,430 @@ function getPhaseInfoElement() {
 // 診断情報を画面に表示
 // ============================================================
 
-function showDiagnostic(data) {
+function updateDiagnostic() {
 
-    const diagnostic =
+    const el =
         getDiagnosticElement();
 
-    diagnostic.innerHTML = `
+    let frames = [];
 
-        <strong>🔎 AI解析診断情報</strong>
+    try {
 
-        <hr>
+        if (
+            typeof getPoseFrames ===
+            "function"
+        ) {
+
+            frames =
+                getPoseFrames() || [];
+
+        }
+
+    } catch (error) {
+
+        console.error(
+            "診断用フレーム取得エラー:",
+            error
+        );
+
+    }
+
+
+    const frameCount =
+        frames.length;
+
+
+    // ----------------------------------------
+    // フレーム数が増えたか確認
+    // ----------------------------------------
+
+    if (
+        frameCount !==
+        lastFrameCount
+    ) {
+
+        lastFrameCount =
+            frameCount;
+
+        lastFrameChangeTime =
+            Date.now();
+
+    }
+
+
+    // ----------------------------------------
+    // 動画情報
+    // ----------------------------------------
+
+    const duration =
+        Number(video.duration);
+
+    const currentTime =
+        Number(video.currentTime);
+
+    const readyState =
+        video.readyState;
+
+    const networkState =
+        video.networkState;
+
+    const paused =
+        video.paused;
+
+    const ended =
+        video.ended;
+
+    const seeking =
+        video.seeking;
+
+
+    // ----------------------------------------
+    // フレーム停止時間
+    // ----------------------------------------
+
+    let stoppedSeconds = 0;
+
+    if (lastFrameChangeTime > 0) {
+
+        stoppedSeconds =
+            (
+                Date.now() -
+                lastFrameChangeTime
+            ) / 1000;
+
+    }
+
+
+    // ----------------------------------------
+    // 動画再生時間の変化
+    // ----------------------------------------
+
+    const videoTimeChanged =
+        currentTime !==
+        lastVideoTime;
+
+    lastVideoTime =
+        currentTime;
+
+
+    // ----------------------------------------
+    // 原因判定
+    // ----------------------------------------
+
+    let diagnosis =
+        "解析中";
+
+    let diagnosisColor =
+        "#1565c0";
+
+
+    if (!video.src) {
+
+        diagnosis =
+            "動画が選択されていません";
+
+        diagnosisColor =
+            "#555";
+
+    }
+
+    else if (
+        readyState < 2
+    ) {
+
+        diagnosis =
+            "動画データの読み込み不足";
+
+        diagnosisColor =
+            "#c62828";
+
+    }
+
+    else if (
+        ended &&
+        frameCount < 20
+    ) {
+
+        diagnosis =
+            "動画終了時点で骨格フレームが20未満です";
+
+        diagnosisColor =
+            "#c62828";
+
+    }
+
+    else if (
+        !ended &&
+        !paused &&
+        stoppedSeconds >= 3 &&
+        frameCount > 0
+    ) {
+
+        diagnosis =
+            "動画は再生中ですが、骨格フレームが3秒以上増えていません";
+
+        diagnosisColor =
+            "#c62828";
+
+    }
+
+    else if (
+        !ended &&
+        paused &&
+        frameCount > 0
+    ) {
+
+        diagnosis =
+            "動画が一時停止しています";
+
+        diagnosisColor =
+            "#ef6c00";
+
+    }
+
+    else if (
+        frameCount < 20
+    ) {
+
+        diagnosis =
+            "骨格フレームを取得中です";
+
+        diagnosisColor =
+            "#ef6c00";
+
+    }
+
+    else {
+
+        diagnosis =
+            "骨格フレーム取得は進行しています";
+
+        diagnosisColor =
+            "#2e7d32";
+
+    }
+
+
+    // ----------------------------------------
+    // readyState説明
+    // ----------------------------------------
+
+    let readyText = "";
+
+    if (readyState === 0) {
+
+        readyText =
+            "0：未読み込み";
+
+    } else if (readyState === 1) {
+
+        readyText =
+            "1：メタデータのみ";
+
+    } else if (readyState === 2) {
+
+        readyText =
+            "2：現在位置を再生可能";
+
+    } else if (readyState === 3) {
+
+        readyText =
+            "3：現在位置より先も再生可能";
+
+    } else if (readyState === 4) {
+
+        readyText =
+            "4：十分に読み込み済み";
+
+    }
+
+
+    // ----------------------------------------
+    // networkState説明
+    // ----------------------------------------
+
+    let networkText = "";
+
+    if (networkState === 0) {
+
+        networkText =
+            "0：未初期化";
+
+    } else if (networkState === 1) {
+
+        networkText =
+            "1：アイドル";
+
+    } else if (networkState === 2) {
+
+        networkText =
+            "2：読み込み中";
+
+    } else if (networkState === 3) {
+
+        networkText =
+            "3：読み込み停止";
+
+    }
+
+
+    // ----------------------------------------
+    // 再生状態
+    // ----------------------------------------
+
+    let playState = "";
+
+    if (ended) {
+
+        playState =
+            "動画終了";
+
+    } else if (paused) {
+
+        playState =
+            "一時停止";
+
+    } else {
+
+        playState =
+            "再生中";
+
+    }
+
+
+    // ----------------------------------------
+    // 画面表示
+    // ----------------------------------------
+
+    el.innerHTML = `
+
+        <div style="
+            font-size:20px;
+            font-weight:bold;
+            border-bottom:1px solid #999;
+            padding-bottom:6px;
+            margin-bottom:8px;
+        ">
+            🔎 AI解析診断情報
+        </div>
 
         <div>
             <strong>取得フレーム数：</strong>
-            ${data.frameCount ?? "不明"}
+            ${frameCount}
         </div>
 
         <div>
-            <strong>phase判定：</strong>
-            ${data.phaseStatus ?? "未解析"}
+            <strong>動画の長さ：</strong>
+            ${
+                Number.isFinite(duration)
+                ? duration.toFixed(2)
+                : "-"
+            }
+            秒
         </div>
 
         <div>
-            <strong>踏切フレーム：</strong>
-            ${data.takeOff ?? "―"}
+            <strong>現在の再生時間：</strong>
+            ${
+                Number.isFinite(currentTime)
+                ? currentTime.toFixed(2)
+                : "-"
+            }
+            秒
         </div>
 
         <div>
-            <strong>着手フレーム：</strong>
-            ${data.handContact ?? "―"}
+            <strong>動画状態：</strong>
+            ${playState}
         </div>
 
         <div>
-            <strong>最高点フレーム：</strong>
-            ${data.highestHip ?? "―"}
+            <strong>readyState：</strong>
+            ${readyText}
         </div>
 
         <div>
-            <strong>着地フレーム：</strong>
-            ${data.landing ?? "―"}
+            <strong>networkState：</strong>
+            ${networkText}
+        </div>
+
+        <div>
+            <strong>最後にフレームが増えてから：</strong>
+            ${stoppedSeconds.toFixed(1)}
+            秒
+        </div>
+
+        <div>
+            <strong>動画時間は進んでいる：</strong>
+            ${videoTimeChanged ? "はい" : "いいえ"}
         </div>
 
         <hr>
 
-        <div>
-            <strong>着手候補数：</strong>
-            ${data.candidateCount ?? "―"}
-        </div>
-
-        <div>
-            <strong>選択着手フレーム：</strong>
-            ${data.selectedHandFrame ?? "―"}
-        </div>
-
-        <div>
-            <strong>着手位置（実測値）：</strong>
-            ${data.handValue ?? "―"}
+        <div style="
+            font-size:18px;
+            font-weight:bold;
+            color:${diagnosisColor};
+        ">
+            原因診断：
+            ${diagnosis}
         </div>
 
     `;
+
 }
 
 
 // ============================================================
-// 着手候補数を安全に取得
+// 診断監視開始
 // ============================================================
 
-function getCandidateCount(phase, result) {
+function startDiagnosticMonitor() {
 
-    // --------------------------------------------------------
-    // ① phase.handCandidates
-    // --------------------------------------------------------
+    if (diagnosticTimer) {
 
-    if (
-        phase &&
-        Array.isArray(
-            phase.handCandidates
-        )
-    ) {
-
-        return phase.handCandidates.length;
-
-    }
-
-
-    // --------------------------------------------------------
-    // ② phase.candidates
-    // --------------------------------------------------------
-
-    if (
-        phase &&
-        Array.isArray(
-            phase.candidates
-        )
-    ) {
-
-        return phase.candidates.length;
-
-    }
-
-
-    // --------------------------------------------------------
-    // ③ phase.handContactCandidates
-    // --------------------------------------------------------
-
-    if (
-        phase &&
-        Array.isArray(
-            phase.handContactCandidates
-        )
-    ) {
-
-        return phase.handContactCandidates.length;
-
-    }
-
-
-    // --------------------------------------------------------
-    // ④ result.handCandidates
-    // --------------------------------------------------------
-
-    if (
-        result &&
-        Array.isArray(
-            result.handCandidates
-        )
-    ) {
-
-        return result.handCandidates.length;
-
-    }
-
-
-    // --------------------------------------------------------
-    // ⑤ result.candidates
-    // --------------------------------------------------------
-
-    if (
-        result &&
-        Array.isArray(
-            result.candidates
-        )
-    ) {
-
-        return result.candidates.length;
-
-    }
-
-
-    // --------------------------------------------------------
-    // ⑥ 数値として保存されている場合
-    // --------------------------------------------------------
-
-    if (
-        phase &&
-        Number.isFinite(
-            Number(
-                phase.candidateCount
-            )
-        )
-    ) {
-
-        return Number(
-            phase.candidateCount
+        clearInterval(
+            diagnosticTimer
         );
 
     }
 
+    lastFrameCount = 0;
+    lastFrameChangeTime =
+        Date.now();
 
-    if (
-        phase &&
-        Number.isFinite(
-            Number(
-                phase.handCandidateCount
-            )
-        )
-    ) {
+    lastVideoTime =
+        video.currentTime || 0;
 
-        return Number(
-            phase.handCandidateCount
+    updateDiagnostic();
+
+    diagnosticTimer =
+        setInterval(
+            updateDiagnostic,
+            500
         );
 
-    }
-
-
-    return null;
-
 }
 
 
 // ============================================================
-// 選択着手フレームを安全に取得
+// 診断監視停止
 // ============================================================
 
-function getSelectedHandFrame(phase, result) {
+function stopDiagnosticMonitor() {
 
-    const keys = [
+    if (diagnosticTimer) {
 
-        "handContact",
+        clearInterval(
+            diagnosticTimer
+        );
 
-        "selectedHandFrame",
-
-        "selectedHandContact",
-
-        "handContactFrame",
-
-        "selectedFrame"
-
-    ];
-
-    for (
-        let i = 0;
-        i < keys.length;
-        i++
-    ) {
-
-        const key =
-            keys[i];
-
-        if (
-            phase &&
-            phase[key] !== undefined &&
-            phase[key] !== null &&
-            Number.isFinite(
-                Number(
-                    phase[key]
-                )
-            )
-        ) {
-
-            return Number(
-                phase[key]
-            );
-
-        }
+        diagnosticTimer =
+            null;
 
     }
 
-
-    for (
-        let i = 0;
-        i < keys.length;
-        i++
-    ) {
-
-        const key =
-            keys[i];
-
-        if (
-            result &&
-            result[key] !== undefined &&
-            result[key] !== null &&
-            Number.isFinite(
-                Number(
-                    result[key]
-                )
-            )
-        ) {
-
-            return Number(
-                result[key]
-            );
-
-        }
-
-    }
-
-
-    return null;
-
-}
-
-
-// ============================================================
-// 着手位置実測値を安全に取得
-// ============================================================
-
-function getHandValue(result) {
-
-    const keys = [
-
-        "handValue",
-
-        "handPosition",
-
-        "handPositionValue",
-
-        "handDistance",
-
-        "handPlacement",
-
-        "handScoreValue",
-
-        "着手位置"
-
-    ];
-
-
-    for (
-        let i = 0;
-        i < keys.length;
-        i++
-    ) {
-
-        const key =
-            keys[i];
-
-        if (
-            result &&
-            result[key] !== undefined &&
-            result[key] !== null &&
-            Number.isFinite(
-                Number(
-                    result[key]
-                )
-            )
-        ) {
-
-            return Number(
-                result[key]
-            ).toFixed(3);
-
-        }
-
-    }
-
-
-    return null;
+    updateDiagnostic();
 
 }
 
@@ -489,34 +564,22 @@ videoFile.addEventListener(
 
         }
 
-
         video.src =
             URL.createObjectURL(file);
 
+        analyzing = false;
+        analysisFinished = false;
 
-        analyzing =
-            false;
-
-        analysisFinished =
-            false;
-
-
-        dScore.textContent =
-            "-";
-
-        totalScore.textContent =
-            "-";
-
+        dScore.textContent = "-";
+        totalScore.textContent = "-";
 
         status.textContent =
             "動画を読み込み中...";
-
 
         const feedback =
             document.getElementById(
                 "feedback"
             );
-
 
         if (feedback) {
 
@@ -525,52 +588,23 @@ videoFile.addEventListener(
 
         }
 
-
         const phaseInfo =
             getPhaseInfoElement();
 
-
-        phaseInfo.textContent =
+        phaseInfo.innerHTML =
             "未解析";
 
-
-        showDiagnostic({
-
-            frameCount:
-                "未解析",
-
-            phaseStatus:
-                "未解析",
-
-            takeOff:
-                "―",
-
-            handContact:
-                "―",
-
-            highestHip:
-                "―",
-
-            landing:
-                "―",
-
-            candidateCount:
-                "―",
-
-            selectedHandFrame:
-                "―",
-
-            handValue:
-                "―"
-
-        });
+        getDiagnosticElement().innerHTML = `
+            <strong>🔎 AI解析診断情報</strong><br>
+            動画を読み込み中...
+        `;
 
     }
 );
 
 
 // ============================================================
-// 動画準備
+// 動画メタデータ読み込み
 // ============================================================
 
 video.addEventListener(
@@ -583,9 +617,31 @@ video.addEventListener(
         canvas.height =
             video.videoHeight;
 
+
+        console.log(
+            "動画幅:",
+            video.videoWidth
+        );
+
+        console.log(
+            "動画高さ:",
+            video.videoHeight
+        );
+
+        console.log(
+            "動画時間:",
+            video.duration
+        );
+
+        updateDiagnostic();
+
     }
 );
 
+
+// ============================================================
+// 動画データ読み込み完了
+// ============================================================
 
 video.addEventListener(
     "loadeddata",
@@ -597,12 +653,182 @@ video.addEventListener(
         canvas.style.height =
             video.clientHeight + "px";
 
-
         status.textContent =
             "動画準備完了";
 
+        updateDiagnostic();
+
     }
 );
+
+
+// ============================================================
+// 再生開始
+// ============================================================
+
+video.addEventListener(
+    "play",
+    () => {
+
+        console.log(
+            "動画 play イベント"
+        );
+
+        updateDiagnostic();
+
+    }
+);
+
+
+// ============================================================
+// 一時停止
+// ============================================================
+
+video.addEventListener(
+    "pause",
+    () => {
+
+        console.log(
+            "動画 pause イベント"
+        );
+
+        updateDiagnostic();
+
+    }
+);
+
+
+// ============================================================
+// 時間更新
+// ============================================================
+
+video.addEventListener(
+    "timeupdate",
+    () => {
+
+        updateDiagnostic();
+
+    }
+);
+
+
+// ============================================================
+// 動画終了
+// ============================================================
+
+video.addEventListener(
+    "ended",
+    () => {
+
+        console.log(
+            "================================"
+        );
+
+        console.log(
+            "動画終了"
+        );
+
+        console.log(
+            "終了時フレーム数:",
+            getPoseFrameCount()
+        );
+
+        console.log(
+            "動画時間:",
+            video.duration
+        );
+
+        console.log(
+            "現在時間:",
+            video.currentTime
+        );
+
+        console.log(
+            "================================"
+        );
+
+        updateDiagnostic();
+
+        if (!analyzing) {
+
+            return;
+
+        }
+
+        finishAnalysis();
+
+    }
+);
+
+
+// ============================================================
+// エラー監視
+// ============================================================
+
+video.addEventListener(
+    "error",
+    () => {
+
+        console.error(
+            "動画エラー:",
+            video.error
+        );
+
+        const el =
+            getDiagnosticElement();
+
+        el.innerHTML += `
+            <hr>
+            <strong style="color:#c62828;">
+                ⚠ 動画読み込みエラー
+            </strong>
+        `;
+
+        status.textContent =
+            "動画読み込みエラー";
+
+    }
+);
+
+
+// ============================================================
+// フレーム数取得
+// ============================================================
+
+function getPoseFrameCount() {
+
+    try {
+
+        if (
+            typeof getPoseFrames ===
+            "function"
+        ) {
+
+            const frames =
+                getPoseFrames();
+
+            if (
+                Array.isArray(frames)
+            ) {
+
+                return frames.length;
+
+            }
+
+        }
+
+    } catch (error) {
+
+        console.error(
+            "フレーム数取得エラー:",
+            error
+        );
+
+    }
+
+    return 0;
+
+}
 
 
 // ============================================================
@@ -623,7 +849,6 @@ detectBtn.addEventListener(
 
         }
 
-
         if (analyzing) {
 
             return;
@@ -631,16 +856,41 @@ detectBtn.addEventListener(
         }
 
 
-        analyzing =
-            true;
-
-        analysisFinished =
-            false;
+        analyzing = true;
+        analysisFinished = false;
 
 
-        // ----------------------------------------------------
+        console.log(
+            "================================"
+        );
+
+        console.log(
+            "AI解析開始"
+        );
+
+        console.log(
+            "動画時間:",
+            video.duration
+        );
+
+        console.log(
+            "video.readyState:",
+            video.readyState
+        );
+
+        console.log(
+            "video.networkState:",
+            video.networkState
+        );
+
+        console.log(
+            "================================"
+        );
+
+
+        // --------------------------------
         // データ初期化
-        // ----------------------------------------------------
+        // --------------------------------
 
         if (
             typeof clearPoseFrames ===
@@ -650,7 +900,6 @@ detectBtn.addEventListener(
             clearPoseFrames();
 
         }
-
 
         if (
             typeof clearPhase ===
@@ -662,18 +911,14 @@ detectBtn.addEventListener(
         }
 
 
-        dScore.textContent =
-            "-";
-
-        totalScore.textContent =
-            "-";
+        dScore.textContent = "-";
+        totalScore.textContent = "-";
 
 
         const feedback =
             document.getElementById(
                 "feedback"
             );
-
 
         if (feedback) {
 
@@ -686,61 +931,49 @@ detectBtn.addEventListener(
         const phaseInfo =
             getPhaseInfoElement();
 
-
-        phaseInfo.textContent =
+        phaseInfo.innerHTML =
             "解析中...";
-
-
-        showDiagnostic({
-
-            frameCount:
-                "解析中...",
-
-            phaseStatus:
-                "解析中...",
-
-            takeOff:
-                "―",
-
-            handContact:
-                "―",
-
-            highestHip:
-                "―",
-
-            landing:
-                "―",
-
-            candidateCount:
-                "―",
-
-            selectedHandFrame:
-                "―",
-
-            handValue:
-                "―"
-
-        });
 
 
         status.textContent =
             "AI解析中...";
 
 
-        // ----------------------------------------------------
+        // --------------------------------
+        // 診断開始
+        // --------------------------------
+
+        analysisStartTime =
+            Date.now();
+
+        startDiagnosticMonitor();
+
+
+        // --------------------------------
         // 動画を最初に戻す
-        // ----------------------------------------------------
+        // --------------------------------
 
         video.pause();
 
-        video.currentTime =
-            0;
-
-
         try {
 
-            await video.play();
+            video.currentTime = 0;
 
+        } catch (error) {
+
+            console.error(
+                "currentTime設定エラー:",
+                error
+            );
+
+        }
+
+
+        // --------------------------------
+        // AI開始
+        // --------------------------------
+
+        try {
 
             if (
                 typeof startPose !==
@@ -754,11 +987,31 @@ detectBtn.addEventListener(
             }
 
 
+            /*
+             * 重要
+             *
+             * startPoseを先に呼び、
+             * その後に動画を再生する。
+             *
+             * これによって、動画再生開始直後の
+             * フレーム取りこぼしを減らす。
+             */
+
             startPose(
                 video,
                 canvas,
                 ctx
             );
+
+
+            await video.play();
+
+
+            status.textContent =
+                "AI解析中：骨格フレーム取得中";
+
+
+            updateDiagnostic();
 
         }
 
@@ -769,68 +1022,26 @@ detectBtn.addEventListener(
                 error
             );
 
+            analyzing = false;
 
-            analyzing =
-                false;
-
+            stopDiagnosticMonitor();
 
             status.textContent =
                 "AI解析を開始できませんでした";
 
 
-            showDiagnostic({
+            const el =
+                getDiagnosticElement();
 
-                frameCount:
-                    "開始失敗",
-
-                phaseStatus:
-                    "―",
-
-                takeOff:
-                    "―",
-
-                handContact:
-                    "―",
-
-                highestHip:
-                    "―",
-
-                landing:
-                    "―",
-
-                candidateCount:
-                    "―",
-
-                selectedHandFrame:
-                    "―",
-
-                handValue:
-                    "―"
-
-            });
+            el.innerHTML += `
+                <hr>
+                <strong style="color:#c62828;">
+                    AI開始エラー
+                </strong><br>
+                ${error.message}
+            `;
 
         }
-
-    }
-);
-
-
-// ============================================================
-// 動画終了
-// ============================================================
-
-video.addEventListener(
-    "ended",
-    () => {
-
-        if (!analyzing) {
-
-            return;
-
-        }
-
-
-        finishAnalysis();
 
     }
 );
@@ -848,7 +1059,6 @@ function finishAnalysis() {
 
     }
 
-
     if (analysisFinished) {
 
         return;
@@ -856,19 +1066,27 @@ function finishAnalysis() {
     }
 
 
-    analysisFinished =
-        true;
-
-    analyzing =
-        false;
+    console.log(
+        "========== 解析終了 =========="
+    );
 
 
-    // ========================================================
-    // 骨格フレーム取得
-    // ========================================================
+    analysisFinished = true;
+    analyzing = false;
+
+
+    // --------------------------------
+    // 診断監視終了
+    // --------------------------------
+
+    stopDiagnosticMonitor();
+
+
+    // --------------------------------
+    // フレーム取得
+    // --------------------------------
 
     let frames = [];
-
 
     try {
 
@@ -883,9 +1101,8 @@ function finishAnalysis() {
 
         }
 
-
         frames =
-            getPoseFrames();
+            getPoseFrames() || [];
 
     }
 
@@ -896,158 +1113,135 @@ function finishAnalysis() {
             error
         );
 
-
         status.textContent =
             "骨格データ取得に失敗しました";
 
-
-        showDiagnostic({
-
-            frameCount:
-                "取得エラー",
-
-            phaseStatus:
-                "未判定",
-
-            takeOff:
-                "―",
-
-            handContact:
-                "―",
-
-            highestHip:
-                "―",
-
-            landing:
-                "―",
-
-            candidateCount:
-                "―",
-
-            selectedHandFrame:
-                "―",
-
-            handValue:
-                "―"
-
-        });
-
+        getPhaseInfoElement()
+            .innerHTML =
+            "解析失敗";
 
         return;
 
     }
 
 
-    // --------------------------------------------------------
-    // 取得フレーム数を即表示
-    // --------------------------------------------------------
-
     const frameCount =
-        Array.isArray(frames)
-            ? frames.length
-            : 0;
+        frames.length;
 
 
-    showDiagnostic({
-
-        frameCount:
-            frameCount,
-
-        phaseStatus:
-            "判定中...",
-
-        takeOff:
-            "―",
-
-        handContact:
-            "―",
-
-        highestHip:
-            "―",
-
-        landing:
-            "―",
-
-        candidateCount:
-            "―",
-
-        selectedHandFrame:
-            "―",
-
-        handValue:
-            "―"
-
-    });
+    console.log(
+        "最終取得フレーム数:",
+        frameCount
+    );
 
 
-    // ========================================================
-    // フレーム不足
-    // ========================================================
+    // --------------------------------
+    // 最終診断
+    // --------------------------------
+
+    const diagnostic =
+        getDiagnosticElement();
+
+    const duration =
+        Number(video.duration);
+
+    const currentTime =
+        Number(video.currentTime);
+
+    let finalMessage = "";
+
+
+    if (frameCount < 20) {
+
+        finalMessage = `
+            <div style="
+                margin-top:10px;
+                padding:10px;
+                background:#ffebee;
+                border-radius:8px;
+                color:#b71c1c;
+            ">
+                <strong>
+                    ⚠ フレーム不足
+                </strong><br>
+
+                最終取得フレーム：
+                ${frameCount} フレーム<br>
+
+                動画の長さ：
+                ${
+                    Number.isFinite(duration)
+                    ? duration.toFixed(2)
+                    : "-"
+                } 秒<br>
+
+                終了時刻：
+                ${
+                    Number.isFinite(currentTime)
+                    ? currentTime.toFixed(2)
+                    : "-"
+                } 秒<br>
+
+                phase.jsへ渡す前に
+                フレーム数が不足しています。
+            </div>
+        `;
+
+    } else {
+
+        finalMessage = `
+            <div style="
+                margin-top:10px;
+                padding:10px;
+                background:#e8f5e9;
+                border-radius:8px;
+                color:#1b5e20;
+            ">
+                <strong>
+                    ✓ フレーム数は十分です
+                </strong><br>
+
+                最終取得フレーム：
+                ${frameCount} フレーム
+            </div>
+        `;
+
+    }
+
+
+    diagnostic.innerHTML +=
+        finalMessage;
+
+
+    // --------------------------------
+    // 20フレーム未満なら
+    // phase.jsを実行しない
+    // --------------------------------
 
     if (
-        !Array.isArray(frames) ||
+        !frames ||
         frames.length < 20
     ) {
+
+        getPhaseInfoElement()
+            .innerHTML = `
+                <strong>解析失敗</strong><br>
+                フレーム不足
+            `;
 
         status.textContent =
             "骨格データが不足しています";
 
-
-        getPhaseInfoElement()
-            .innerHTML = `
-
-                <strong>解析失敗</strong><br>
-
-                取得フレーム数：
-                ${frameCount}
-
-            `;
-
-
-        showDiagnostic({
-
-            frameCount:
-                frameCount,
-
-            phaseStatus:
-                "フレーム不足",
-
-            takeOff:
-                "―",
-
-            handContact:
-                "―",
-
-            highestHip:
-                "―",
-
-            landing:
-                "―",
-
-            candidateCount:
-                "―",
-
-            selectedHandFrame:
-                "―",
-
-            handValue:
-                "―"
-
-        });
-
-
         return;
 
     }
 
 
     // ========================================================
-    // フェーズ検出
+    // phase判定
     // ========================================================
 
-    let phase =
-        null;
-
+    let phase = null;
 
     try {
 
@@ -1062,112 +1256,44 @@ function finishAnalysis() {
 
         }
 
-
         phase =
             detectPhases(frames);
+
+
+        console.log(
+            "phase判定結果:",
+            phase
+        );
 
     }
 
     catch (error) {
 
         console.error(
-            "フェーズ検出エラー:",
+            "phase検出エラー:",
             error
         );
 
-
         getPhaseInfoElement()
-            .textContent =
-            "フェーズ検出エラー";
-
+            .innerHTML =
+            "phase検出エラー";
 
         status.textContent =
-            "フェーズ検出に失敗しました";
-
-
-        showDiagnostic({
-
-            frameCount:
-                frameCount,
-
-            phaseStatus:
-                "エラー",
-
-            takeOff:
-                "―",
-
-            handContact:
-                "―",
-
-            highestHip:
-                "―",
-
-            landing:
-                "―",
-
-            candidateCount:
-                "―",
-
-            selectedHandFrame:
-                "―",
-
-            handValue:
-                "―"
-
-        });
-
+            "phase検出に失敗しました";
 
         return;
 
     }
 
-
-    // ========================================================
-    // phaseがnullの場合
-    // ========================================================
 
     if (!phase) {
 
         getPhaseInfoElement()
-            .textContent =
-            "フェーズ検出に失敗しました";
-
+            .innerHTML =
+            "phase検出に失敗しました";
 
         status.textContent =
-            "フェーズ検出に失敗しました";
-
-
-        showDiagnostic({
-
-            frameCount:
-                frameCount,
-
-            phaseStatus:
-                "null / 検出失敗",
-
-            takeOff:
-                "―",
-
-            handContact:
-                "―",
-
-            highestHip:
-                "―",
-
-            landing:
-                "―",
-
-            candidateCount:
-                "0",
-
-            selectedHandFrame:
-                "―",
-
-            handValue:
-                "―"
-
-        });
-
+            "phase検出に失敗しました";
 
         return;
 
@@ -1175,40 +1301,7 @@ function finishAnalysis() {
 
 
     // ========================================================
-    // フェーズ情報取得
-    // ========================================================
-
-    const takeOff =
-        phase.takeOff ??
-        "―";
-
-
-    const handContact =
-        getSelectedHandFrame(
-            phase,
-            null
-        ) ?? "―";
-
-
-    const highestHip =
-        phase.highestHip ??
-        "―";
-
-
-    const landing =
-        phase.landing ??
-        "―";
-
-
-    const candidateCount =
-        getCandidateCount(
-            phase,
-            null
-        );
-
-
-    // ========================================================
-    // フェーズ画面表示
+    // phase表示
     // ========================================================
 
     const phaseInfo =
@@ -1220,69 +1313,29 @@ function finishAnalysis() {
         <strong>動作フェーズ</strong><br>
 
         踏切：
-        ${takeOff}
+        ${phase.takeOff ?? "—"}
         フレーム<br>
 
         着手：
-        ${handContact}
+        ${phase.handContact ?? "—"}
         フレーム<br>
 
         最高点：
-        ${highestHip}
+        ${phase.highestHip ?? "—"}
         フレーム<br>
 
         着地：
-        ${landing}
+        ${phase.landing ?? "—"}
         フレーム
 
     `;
 
 
     // ========================================================
-    // 一度フェーズ情報を診断表示
+    // Dスコア
     // ========================================================
 
-    showDiagnostic({
-
-        frameCount:
-            frameCount,
-
-        phaseStatus:
-            "検出成功",
-
-        takeOff:
-            takeOff,
-
-        handContact:
-            handContact,
-
-        highestHip:
-            highestHip,
-
-        landing:
-            landing,
-
-        candidateCount:
-            candidateCount !== null
-                ? candidateCount
-                : "取得不可",
-
-        selectedHandFrame:
-            handContact,
-
-        handValue:
-            "採点待ち"
-
-    });
-
-
-    // ========================================================
-    // Dスコア計算
-    // ========================================================
-
-    let result =
-        null;
-
+    let result = null;
 
     try {
 
@@ -1304,6 +1357,12 @@ function finishAnalysis() {
                 phase
             );
 
+
+        console.log(
+            "採点結果:",
+            result
+        );
+
     }
 
     catch (error) {
@@ -1313,127 +1372,22 @@ function finishAnalysis() {
             error
         );
 
-
         status.textContent =
             "Dスコア計算に失敗しました";
-
-
-        showDiagnostic({
-
-            frameCount:
-                frameCount,
-
-            phaseStatus:
-                "検出成功・採点失敗",
-
-            takeOff:
-                takeOff,
-
-            handContact:
-                handContact,
-
-            highestHip:
-                highestHip,
-
-            landing:
-                landing,
-
-            candidateCount:
-                candidateCount !== null
-                    ? candidateCount
-                    : "取得不可",
-
-            selectedHandFrame:
-                handContact,
-
-            handValue:
-                "採点失敗"
-
-        });
-
 
         return;
 
     }
 
-
-    // ========================================================
-    // resultがない場合
-    // ========================================================
 
     if (!result) {
 
         status.textContent =
             "採点結果を取得できませんでした";
 
-
-        showDiagnostic({
-
-            frameCount:
-                frameCount,
-
-            phaseStatus:
-                "検出成功・resultなし",
-
-            takeOff:
-                takeOff,
-
-            handContact:
-                handContact,
-
-            highestHip:
-                highestHip,
-
-            landing:
-                landing,
-
-            candidateCount:
-                candidateCount !== null
-                    ? candidateCount
-                    : "取得不可",
-
-            selectedHandFrame:
-                handContact,
-
-            handValue:
-                "―"
-
-        });
-
-
         return;
 
     }
-
-
-    // ========================================================
-    // resultから着手情報を取得
-    // ========================================================
-
-    const resultCandidateCount =
-        getCandidateCount(
-            phase,
-            result
-        );
-
-
-    const finalCandidateCount =
-        resultCandidateCount !== null
-            ? resultCandidateCount
-            : candidateCount;
-
-
-    const selectedFrame =
-        getSelectedHandFrame(
-            phase,
-            result
-        );
-
-
-    const handValue =
-        getHandValue(
-            result
-        );
 
 
     // ========================================================
@@ -1441,9 +1395,7 @@ function finishAnalysis() {
     // ========================================================
 
     const score =
-        Number(
-            result.score
-        );
+        Number(result.score);
 
 
     if (
@@ -1453,55 +1405,12 @@ function finishAnalysis() {
         dScore.textContent =
             score.toFixed(1);
 
-    }
-
-    else {
+    } else {
 
         dScore.textContent =
             "-";
 
     }
-
-
-    // ========================================================
-    // 最終診断表示
-    // ========================================================
-
-    showDiagnostic({
-
-        frameCount:
-            frameCount,
-
-        phaseStatus:
-            "検出成功・採点完了",
-
-        takeOff:
-            takeOff,
-
-        handContact:
-            selectedFrame ??
-            handContact,
-
-        highestHip:
-            highestHip,
-
-        landing:
-            landing,
-
-        candidateCount:
-            finalCandidateCount !== null
-                ? finalCandidateCount
-                : "取得不可",
-
-        selectedHandFrame:
-            selectedFrame ??
-            handContact,
-
-        handValue:
-            handValue ??
-            "取得不可"
-
-    });
 
 
     // ========================================================
@@ -1515,9 +1424,7 @@ function finishAnalysis() {
             "function"
         ) {
 
-            showFeedback(
-                result
-            );
+            showFeedback(result);
 
         }
 
@@ -1530,12 +1437,10 @@ function finishAnalysis() {
             error
         );
 
-
         const feedback =
             document.getElementById(
                 "feedback"
             );
-
 
         if (feedback) {
 
@@ -1561,6 +1466,11 @@ function finishAnalysis() {
     status.textContent =
         "解析完了";
 
+
+    console.log(
+        "========== 解析完了 =========="
+    );
+
 }
 
 
@@ -1580,7 +1490,6 @@ function updateTotal() {
         Number(
             dScore.textContent
         );
-
 
     const e =
         Number(
@@ -1610,7 +1519,7 @@ function updateTotal() {
 
 
 // ============================================================
-// グローバル公開
+// 外部公開
 // ============================================================
 
 window.finishAnalysis =
@@ -1619,11 +1528,29 @@ window.finishAnalysis =
 window.updateTotal =
     updateTotal;
 
+window.updateDiagnostic =
+    updateDiagnostic;
+
+window.startDiagnosticMonitor =
+    startDiagnosticMonitor;
+
 
 // ============================================================
-// 起動確認
+// 読み込み確認
 // ============================================================
 
 console.log(
-    "app.js 診断版 読み込み"
+    "================================"
+);
+
+console.log(
+    "app.js 診断版 読み込み成功"
+);
+
+console.log(
+    "取得フレーム数・動画状態・phase診断を画面表示します"
+);
+
+console.log(
+    "================================"
 );
