@@ -1,8 +1,15 @@
-    // ===============================
-// 跳び箱AI採点システム Ver6.2
-// app.js
-// フェーズ・着手候補表示対応版
-// ===============================
+// ============================================================
+// 跳び箱AI採点システム
+// app.js 診断版
+// ============================================================
+// 目的
+// ・取得フレーム数を画面に表示
+// ・phase判定結果を画面に表示
+// ・着手候補数を画面に表示
+// ・選択着手フレームを画面に表示
+// ・着手位置実測値を画面に表示
+// ・DevTools / Console 不要
+// ============================================================
 
 const videoFile = document.getElementById("videoFile");
 const video = document.getElementById("video");
@@ -20,9 +27,70 @@ let analyzing = false;
 let analysisFinished = false;
 
 
-// ===============================
-// フェーズ表示
-// ===============================
+// ============================================================
+// 診断表示エリア
+// ============================================================
+
+function getDiagnosticElement() {
+
+    let diagnostic =
+        document.getElementById("analysisDiagnostic");
+
+    if (!diagnostic) {
+
+        diagnostic =
+            document.createElement("div");
+
+        diagnostic.id =
+            "analysisDiagnostic";
+
+        diagnostic.style.marginTop =
+            "15px";
+
+        diagnostic.style.padding =
+            "15px";
+
+        diagnostic.style.border =
+            "2px solid #1976d2";
+
+        diagnostic.style.borderRadius =
+            "10px";
+
+        diagnostic.style.background =
+            "#f5f9ff";
+
+        diagnostic.style.fontSize =
+            "16px";
+
+        diagnostic.style.lineHeight =
+            "1.8";
+
+        const phaseInfo =
+            document.getElementById("phaseInfo");
+
+        if (phaseInfo && phaseInfo.parentElement) {
+
+            phaseInfo.parentElement.appendChild(
+                diagnostic
+            );
+
+        } else {
+
+            document.body.appendChild(
+                diagnostic
+            );
+
+        }
+
+    }
+
+    return diagnostic;
+}
+
+
+// ============================================================
+// フェーズ表示エリア
+// ============================================================
 
 function getPhaseInfoElement() {
 
@@ -34,13 +102,17 @@ function getPhaseInfoElement() {
         phaseInfo =
             document.createElement("div");
 
-        phaseInfo.id = "phaseInfo";
+        phaseInfo.id =
+            "phaseInfo";
 
-        phaseInfo.style.marginTop = "10px";
-        phaseInfo.style.padding = "10px";
-        phaseInfo.style.borderRadius = "8px";
-        phaseInfo.style.backgroundColor = "#f5f5f5";
-        phaseInfo.style.lineHeight = "1.7";
+        phaseInfo.style.marginTop =
+            "10px";
+
+        phaseInfo.style.padding =
+            "10px";
+
+        phaseInfo.style.borderRadius =
+            "8px";
 
         const parent =
             status.closest(".card");
@@ -65,9 +137,344 @@ function getPhaseInfoElement() {
 }
 
 
-// ===============================
+// ============================================================
+// 診断情報を画面に表示
+// ============================================================
+
+function showDiagnostic(data) {
+
+    const diagnostic =
+        getDiagnosticElement();
+
+    diagnostic.innerHTML = `
+
+        <strong>🔎 AI解析診断情報</strong>
+
+        <hr>
+
+        <div>
+            <strong>取得フレーム数：</strong>
+            ${data.frameCount ?? "不明"}
+        </div>
+
+        <div>
+            <strong>phase判定：</strong>
+            ${data.phaseStatus ?? "未解析"}
+        </div>
+
+        <div>
+            <strong>踏切フレーム：</strong>
+            ${data.takeOff ?? "―"}
+        </div>
+
+        <div>
+            <strong>着手フレーム：</strong>
+            ${data.handContact ?? "―"}
+        </div>
+
+        <div>
+            <strong>最高点フレーム：</strong>
+            ${data.highestHip ?? "―"}
+        </div>
+
+        <div>
+            <strong>着地フレーム：</strong>
+            ${data.landing ?? "―"}
+        </div>
+
+        <hr>
+
+        <div>
+            <strong>着手候補数：</strong>
+            ${data.candidateCount ?? "―"}
+        </div>
+
+        <div>
+            <strong>選択着手フレーム：</strong>
+            ${data.selectedHandFrame ?? "―"}
+        </div>
+
+        <div>
+            <strong>着手位置（実測値）：</strong>
+            ${data.handValue ?? "―"}
+        </div>
+
+    `;
+}
+
+
+// ============================================================
+// 着手候補数を安全に取得
+// ============================================================
+
+function getCandidateCount(phase, result) {
+
+    // --------------------------------------------------------
+    // ① phase.handCandidates
+    // --------------------------------------------------------
+
+    if (
+        phase &&
+        Array.isArray(
+            phase.handCandidates
+        )
+    ) {
+
+        return phase.handCandidates.length;
+
+    }
+
+
+    // --------------------------------------------------------
+    // ② phase.candidates
+    // --------------------------------------------------------
+
+    if (
+        phase &&
+        Array.isArray(
+            phase.candidates
+        )
+    ) {
+
+        return phase.candidates.length;
+
+    }
+
+
+    // --------------------------------------------------------
+    // ③ phase.handContactCandidates
+    // --------------------------------------------------------
+
+    if (
+        phase &&
+        Array.isArray(
+            phase.handContactCandidates
+        )
+    ) {
+
+        return phase.handContactCandidates.length;
+
+    }
+
+
+    // --------------------------------------------------------
+    // ④ result.handCandidates
+    // --------------------------------------------------------
+
+    if (
+        result &&
+        Array.isArray(
+            result.handCandidates
+        )
+    ) {
+
+        return result.handCandidates.length;
+
+    }
+
+
+    // --------------------------------------------------------
+    // ⑤ result.candidates
+    // --------------------------------------------------------
+
+    if (
+        result &&
+        Array.isArray(
+            result.candidates
+        )
+    ) {
+
+        return result.candidates.length;
+
+    }
+
+
+    // --------------------------------------------------------
+    // ⑥ 数値として保存されている場合
+    // --------------------------------------------------------
+
+    if (
+        phase &&
+        Number.isFinite(
+            Number(
+                phase.candidateCount
+            )
+        )
+    ) {
+
+        return Number(
+            phase.candidateCount
+        );
+
+    }
+
+
+    if (
+        phase &&
+        Number.isFinite(
+            Number(
+                phase.handCandidateCount
+            )
+        )
+    ) {
+
+        return Number(
+            phase.handCandidateCount
+        );
+
+    }
+
+
+    return null;
+
+}
+
+
+// ============================================================
+// 選択着手フレームを安全に取得
+// ============================================================
+
+function getSelectedHandFrame(phase, result) {
+
+    const keys = [
+
+        "handContact",
+
+        "selectedHandFrame",
+
+        "selectedHandContact",
+
+        "handContactFrame",
+
+        "selectedFrame"
+
+    ];
+
+    for (
+        let i = 0;
+        i < keys.length;
+        i++
+    ) {
+
+        const key =
+            keys[i];
+
+        if (
+            phase &&
+            phase[key] !== undefined &&
+            phase[key] !== null &&
+            Number.isFinite(
+                Number(
+                    phase[key]
+                )
+            )
+        ) {
+
+            return Number(
+                phase[key]
+            );
+
+        }
+
+    }
+
+
+    for (
+        let i = 0;
+        i < keys.length;
+        i++
+    ) {
+
+        const key =
+            keys[i];
+
+        if (
+            result &&
+            result[key] !== undefined &&
+            result[key] !== null &&
+            Number.isFinite(
+                Number(
+                    result[key]
+                )
+            )
+        ) {
+
+            return Number(
+                result[key]
+            );
+
+        }
+
+    }
+
+
+    return null;
+
+}
+
+
+// ============================================================
+// 着手位置実測値を安全に取得
+// ============================================================
+
+function getHandValue(result) {
+
+    const keys = [
+
+        "handValue",
+
+        "handPosition",
+
+        "handPositionValue",
+
+        "handDistance",
+
+        "handPlacement",
+
+        "handScoreValue",
+
+        "着手位置"
+
+    ];
+
+
+    for (
+        let i = 0;
+        i < keys.length;
+        i++
+    ) {
+
+        const key =
+            keys[i];
+
+        if (
+            result &&
+            result[key] !== undefined &&
+            result[key] !== null &&
+            Number.isFinite(
+                Number(
+                    result[key]
+                )
+            )
+        ) {
+
+            return Number(
+                result[key]
+            ).toFixed(3);
+
+        }
+
+    }
+
+
+    return null;
+
+}
+
+
+// ============================================================
 // 動画選択
-// ===============================
+// ============================================================
 
 videoFile.addEventListener(
     "change",
@@ -76,16 +483,30 @@ videoFile.addEventListener(
         const file =
             videoFile.files[0];
 
-        if (!file) return;
+        if (!file) {
+
+            return;
+
+        }
+
 
         video.src =
             URL.createObjectURL(file);
 
-        analyzing = false;
-        analysisFinished = false;
 
-        dScore.textContent = "-";
-        totalScore.textContent = "-";
+        analyzing =
+            false;
+
+        analysisFinished =
+            false;
+
+
+        dScore.textContent =
+            "-";
+
+        totalScore.textContent =
+            "-";
+
 
         status.textContent =
             "動画を読み込み中...";
@@ -95,6 +516,7 @@ videoFile.addEventListener(
             document.getElementById(
                 "feedback"
             );
+
 
         if (feedback) {
 
@@ -107,16 +529,49 @@ videoFile.addEventListener(
         const phaseInfo =
             getPhaseInfoElement();
 
-        phaseInfo.innerHTML =
+
+        phaseInfo.textContent =
             "未解析";
+
+
+        showDiagnostic({
+
+            frameCount:
+                "未解析",
+
+            phaseStatus:
+                "未解析",
+
+            takeOff:
+                "―",
+
+            handContact:
+                "―",
+
+            highestHip:
+                "―",
+
+            landing:
+                "―",
+
+            candidateCount:
+                "―",
+
+            selectedHandFrame:
+                "―",
+
+            handValue:
+                "―"
+
+        });
 
     }
 );
 
 
-// ===============================
+// ============================================================
 // 動画準備
-// ===============================
+// ============================================================
 
 video.addEventListener(
     "loadedmetadata",
@@ -142,6 +597,7 @@ video.addEventListener(
         canvas.style.height =
             video.clientHeight + "px";
 
+
         status.textContent =
             "動画準備完了";
 
@@ -149,9 +605,9 @@ video.addEventListener(
 );
 
 
-// ===============================
-// AI開始
-// ===============================
+// ============================================================
+// AI解析開始
+// ============================================================
 
 detectBtn.addEventListener(
     "click",
@@ -175,13 +631,16 @@ detectBtn.addEventListener(
         }
 
 
-        analyzing = true;
-        analysisFinished = false;
+        analyzing =
+            true;
+
+        analysisFinished =
+            false;
 
 
-        // ----------------------------
+        // ----------------------------------------------------
         // データ初期化
-        // ----------------------------
+        // ----------------------------------------------------
 
         if (
             typeof clearPoseFrames ===
@@ -203,8 +662,11 @@ detectBtn.addEventListener(
         }
 
 
-        dScore.textContent = "-";
-        totalScore.textContent = "-";
+        dScore.textContent =
+            "-";
+
+        totalScore.textContent =
+            "-";
 
 
         const feedback =
@@ -225,21 +687,54 @@ detectBtn.addEventListener(
             getPhaseInfoElement();
 
 
-        phaseInfo.innerHTML =
+        phaseInfo.textContent =
             "解析中...";
+
+
+        showDiagnostic({
+
+            frameCount:
+                "解析中...",
+
+            phaseStatus:
+                "解析中...",
+
+            takeOff:
+                "―",
+
+            handContact:
+                "―",
+
+            highestHip:
+                "―",
+
+            landing:
+                "―",
+
+            candidateCount:
+                "―",
+
+            selectedHandFrame:
+                "―",
+
+            handValue:
+                "―"
+
+        });
 
 
         status.textContent =
             "AI解析中...";
 
 
-        // ----------------------------
+        // ----------------------------------------------------
         // 動画を最初に戻す
-        // ----------------------------
+        // ----------------------------------------------------
 
         video.pause();
 
-        video.currentTime = 0;
+        video.currentTime =
+            0;
 
 
         try {
@@ -274,10 +769,45 @@ detectBtn.addEventListener(
                 error
             );
 
-            analyzing = false;
+
+            analyzing =
+                false;
+
 
             status.textContent =
                 "AI解析を開始できませんでした";
+
+
+            showDiagnostic({
+
+                frameCount:
+                    "開始失敗",
+
+                phaseStatus:
+                    "―",
+
+                takeOff:
+                    "―",
+
+                handContact:
+                    "―",
+
+                highestHip:
+                    "―",
+
+                landing:
+                    "―",
+
+                candidateCount:
+                    "―",
+
+                selectedHandFrame:
+                    "―",
+
+                handValue:
+                    "―"
+
+            });
 
         }
 
@@ -285,18 +815,13 @@ detectBtn.addEventListener(
 );
 
 
-// ===============================
+// ============================================================
 // 動画終了
-// ===============================
+// ============================================================
 
 video.addEventListener(
     "ended",
     () => {
-
-        console.log(
-            "動画終了を検出"
-        );
-
 
         if (!analyzing) {
 
@@ -311,9 +836,9 @@ video.addEventListener(
 );
 
 
-// ===============================
+// ============================================================
 // AI解析終了
-// ===============================
+// ============================================================
 
 function finishAnalysis() {
 
@@ -331,18 +856,16 @@ function finishAnalysis() {
     }
 
 
-    console.log(
-        "========== Ver6.2 解析終了 =========="
-    );
+    analysisFinished =
+        true;
+
+    analyzing =
+        false;
 
 
-    analysisFinished = true;
-    analyzing = false;
-
-
-    // ============================
+    // ========================================================
     // 骨格フレーム取得
-    // ============================
+    // ========================================================
 
     let frames = [];
 
@@ -378,19 +901,91 @@ function finishAnalysis() {
             "骨格データ取得に失敗しました";
 
 
+        showDiagnostic({
+
+            frameCount:
+                "取得エラー",
+
+            phaseStatus:
+                "未判定",
+
+            takeOff:
+                "―",
+
+            handContact:
+                "―",
+
+            highestHip:
+                "―",
+
+            landing:
+                "―",
+
+            candidateCount:
+                "―",
+
+            selectedHandFrame:
+                "―",
+
+            handValue:
+                "―"
+
+        });
+
+
         return;
 
     }
 
 
-    console.log(
-        "取得フレーム数:",
-        frames.length
-    );
+    // --------------------------------------------------------
+    // 取得フレーム数を即表示
+    // --------------------------------------------------------
 
+    const frameCount =
+        Array.isArray(frames)
+            ? frames.length
+            : 0;
+
+
+    showDiagnostic({
+
+        frameCount:
+            frameCount,
+
+        phaseStatus:
+            "判定中...",
+
+        takeOff:
+            "―",
+
+        handContact:
+            "―",
+
+        highestHip:
+            "―",
+
+        landing:
+            "―",
+
+        candidateCount:
+            "―",
+
+        selectedHandFrame:
+            "―",
+
+        handValue:
+            "―"
+
+    });
+
+
+    // ========================================================
+    // フレーム不足
+    // ========================================================
 
     if (
-        !frames ||
+        !Array.isArray(frames) ||
         frames.length < 20
     ) {
 
@@ -399,8 +994,46 @@ function finishAnalysis() {
 
 
         getPhaseInfoElement()
-            .textContent =
-            "解析失敗";
+            .innerHTML = `
+
+                <strong>解析失敗</strong><br>
+
+                取得フレーム数：
+                ${frameCount}
+
+            `;
+
+
+        showDiagnostic({
+
+            frameCount:
+                frameCount,
+
+            phaseStatus:
+                "フレーム不足",
+
+            takeOff:
+                "―",
+
+            handContact:
+                "―",
+
+            highestHip:
+                "―",
+
+            landing:
+                "―",
+
+            candidateCount:
+                "―",
+
+            selectedHandFrame:
+                "―",
+
+            handValue:
+                "―"
+
+        });
 
 
         return;
@@ -408,12 +1041,12 @@ function finishAnalysis() {
     }
 
 
-
-    // ============================
+    // ========================================================
     // フェーズ検出
-    // ============================
+    // ========================================================
 
-    let phase = null;
+    let phase =
+        null;
 
 
     try {
@@ -431,15 +1064,7 @@ function finishAnalysis() {
 
 
         phase =
-            detectPhases(
-                frames
-            );
-
-
-        console.log(
-            "フェーズ結果:",
-            phase
-        );
+            detectPhases(frames);
 
     }
 
@@ -460,10 +1085,46 @@ function finishAnalysis() {
             "フェーズ検出に失敗しました";
 
 
+        showDiagnostic({
+
+            frameCount:
+                frameCount,
+
+            phaseStatus:
+                "エラー",
+
+            takeOff:
+                "―",
+
+            handContact:
+                "―",
+
+            highestHip:
+                "―",
+
+            landing:
+                "―",
+
+            candidateCount:
+                "―",
+
+            selectedHandFrame:
+                "―",
+
+            handValue:
+                "―"
+
+        });
+
+
         return;
 
     }
 
+
+    // ========================================================
+    // phaseがnullの場合
+    // ========================================================
 
     if (!phase) {
 
@@ -476,154 +1137,151 @@ function finishAnalysis() {
             "フェーズ検出に失敗しました";
 
 
+        showDiagnostic({
+
+            frameCount:
+                frameCount,
+
+            phaseStatus:
+                "null / 検出失敗",
+
+            takeOff:
+                "―",
+
+            handContact:
+                "―",
+
+            highestHip:
+                "―",
+
+            landing:
+                "―",
+
+            candidateCount:
+                "0",
+
+            selectedHandFrame:
+                "―",
+
+            handValue:
+                "―"
+
+        });
+
+
         return;
 
     }
 
 
+    // ========================================================
+    // フェーズ情報取得
+    // ========================================================
 
-    // ============================
-    // フェーズ表示
-    // ============================
+    const takeOff =
+        phase.takeOff ??
+        "―";
+
+
+    const handContact =
+        getSelectedHandFrame(
+            phase,
+            null
+        ) ?? "―";
+
+
+    const highestHip =
+        phase.highestHip ??
+        "―";
+
+
+    const landing =
+        phase.landing ??
+        "―";
+
+
+    const candidateCount =
+        getCandidateCount(
+            phase,
+            null
+        );
+
+
+    // ========================================================
+    // フェーズ画面表示
+    // ========================================================
 
     const phaseInfo =
         getPhaseInfoElement();
 
 
-    // --------------------------------
-    // 基本フェーズ
-    // --------------------------------
-
-    let phaseHTML = `
+    phaseInfo.innerHTML = `
 
         <strong>動作フェーズ</strong><br>
 
         踏切：
-        ${phase.takeOff}
+        ${takeOff}
         フレーム<br>
 
         着手：
-        ${phase.handContact}
+        ${handContact}
         フレーム<br>
 
         最高点：
-        ${phase.highestHip}
+        ${highestHip}
         フレーム<br>
 
         着地：
-        ${phase.landing}
+        ${landing}
         フレーム
 
     `;
 
 
-    // --------------------------------
-    // 着手候補情報
-    // --------------------------------
+    // ========================================================
+    // 一度フェーズ情報を診断表示
+    // ========================================================
 
-    if (
-        Number.isFinite(
-            Number(
-                phase.handCandidateCount
-            )
-        )
-    ) {
+    showDiagnostic({
 
-        phaseHTML += `
+        frameCount:
+            frameCount,
 
-            <hr>
+        phaseStatus:
+            "検出成功",
 
-            <strong>着手位置解析</strong><br>
+        takeOff:
+            takeOff,
 
-            着手候補数：
-            ${phase.handCandidateCount}<br>
+        handContact:
+            handContact,
 
-            選択着手フレーム：
-            ${phase.selectedHandFrame}
+        highestHip:
+            highestHip,
 
-        `;
+        landing:
+            landing,
 
-    }
+        candidateCount:
+            candidateCount !== null
+                ? candidateCount
+                : "取得不可",
 
-    else {
+        selectedHandFrame:
+            handContact,
 
-        phaseHTML += `
+        handValue:
+            "採点待ち"
 
-            <hr>
-
-            <strong>着手位置解析</strong><br>
-
-            着手候補数：
-            データなし<br>
-
-            選択着手フレーム：
-            データなし
-
-        `;
-
-    }
+    });
 
 
-    // --------------------------------
-    // 着手候補一覧
-    // --------------------------------
+    // ========================================================
+    // Dスコア計算
+    // ========================================================
 
-    if (
-        Array.isArray(
-            phase.handCandidates
-        ) &&
-        phase.handCandidates.length > 0
-    ) {
-
-        phaseHTML += `
-
-            <br>
-            <details>
-                <summary>
-                    着手候補の詳細
-                </summary>
-                <div style="margin-top:8px;">
-        `;
-
-
-        phase.handCandidates.forEach(
-            (candidate, index) => {
-
-                phaseHTML += `
-
-                    候補${index + 1}：
-                    ${candidate.frame}
-                    フレーム　
-                    実測値
-                    ${candidate.distance}
-                    <br>
-
-                `;
-
-            }
-        );
-
-
-        phaseHTML += `
-
-                </div>
-            </details>
-
-        `;
-
-    }
-
-
-    phaseInfo.innerHTML =
-        phaseHTML;
-
-
-
-    // ============================
-    // Dスコア
-    // ============================
-
-    let result = null;
+    let result =
+        null;
 
 
     try {
@@ -646,12 +1304,6 @@ function finishAnalysis() {
                 phase
             );
 
-
-        console.log(
-            "採点結果:",
-            result
-        );
-
     }
 
     catch (error) {
@@ -666,10 +1318,48 @@ function finishAnalysis() {
             "Dスコア計算に失敗しました";
 
 
+        showDiagnostic({
+
+            frameCount:
+                frameCount,
+
+            phaseStatus:
+                "検出成功・採点失敗",
+
+            takeOff:
+                takeOff,
+
+            handContact:
+                handContact,
+
+            highestHip:
+                highestHip,
+
+            landing:
+                landing,
+
+            candidateCount:
+                candidateCount !== null
+                    ? candidateCount
+                    : "取得不可",
+
+            selectedHandFrame:
+                handContact,
+
+            handValue:
+                "採点失敗"
+
+        });
+
+
         return;
 
     }
 
+
+    // ========================================================
+    // resultがない場合
+    // ========================================================
 
     if (!result) {
 
@@ -677,15 +1367,78 @@ function finishAnalysis() {
             "採点結果を取得できませんでした";
 
 
+        showDiagnostic({
+
+            frameCount:
+                frameCount,
+
+            phaseStatus:
+                "検出成功・resultなし",
+
+            takeOff:
+                takeOff,
+
+            handContact:
+                handContact,
+
+            highestHip:
+                highestHip,
+
+            landing:
+                landing,
+
+            candidateCount:
+                candidateCount !== null
+                    ? candidateCount
+                    : "取得不可",
+
+            selectedHandFrame:
+                handContact,
+
+            handValue:
+                "―"
+
+        });
+
+
         return;
 
     }
 
 
+    // ========================================================
+    // resultから着手情報を取得
+    // ========================================================
 
-    // ============================
+    const resultCandidateCount =
+        getCandidateCount(
+            phase,
+            result
+        );
+
+
+    const finalCandidateCount =
+        resultCandidateCount !== null
+            ? resultCandidateCount
+            : candidateCount;
+
+
+    const selectedFrame =
+        getSelectedHandFrame(
+            phase,
+            result
+        );
+
+
+    const handValue =
+        getHandValue(
+            result
+        );
+
+
+    // ========================================================
     // Dスコア表示
-    // ============================
+    // ========================================================
 
     const score =
         Number(
@@ -710,10 +1463,50 @@ function finishAnalysis() {
     }
 
 
+    // ========================================================
+    // 最終診断表示
+    // ========================================================
 
-    // ============================
+    showDiagnostic({
+
+        frameCount:
+            frameCount,
+
+        phaseStatus:
+            "検出成功・採点完了",
+
+        takeOff:
+            takeOff,
+
+        handContact:
+            selectedFrame ??
+            handContact,
+
+        highestHip:
+            highestHip,
+
+        landing:
+            landing,
+
+        candidateCount:
+            finalCandidateCount !== null
+                ? finalCandidateCount
+                : "取得不可",
+
+        selectedHandFrame:
+            selectedFrame ??
+            handContact,
+
+        handValue:
+            handValue ??
+            "取得不可"
+
+    });
+
+
+    // ========================================================
     // フィードバック
-    // ============================
+    // ========================================================
 
     try {
 
@@ -724,19 +1517,6 @@ function finishAnalysis() {
 
             showFeedback(
                 result
-            );
-
-
-            console.log(
-                "フィードバック表示完了"
-            );
-
-        }
-
-        else {
-
-            console.error(
-                "showFeedback が見つかりません"
             );
 
         }
@@ -767,34 +1547,26 @@ function finishAnalysis() {
     }
 
 
-
-    // ============================
+    // ========================================================
     // 合計点
-    // ============================
+    // ========================================================
 
     updateTotal();
 
 
-
-    // ============================
+    // ========================================================
     // 完了
-    // ============================
+    // ========================================================
 
     status.textContent =
         "解析完了";
 
-
-    console.log(
-        "========== Ver6.2 解析完了 =========="
-    );
-
 }
 
 
-
-// ===============================
+// ============================================================
 // 合計点
-// ===============================
+// ============================================================
 
 eScore.addEventListener(
     "input",
@@ -837,19 +1609,21 @@ function updateTotal() {
 }
 
 
-
-// ===============================
-// 公開
-// ===============================
+// ============================================================
+// グローバル公開
+// ============================================================
 
 window.finishAnalysis =
     finishAnalysis;
-
 
 window.updateTotal =
     updateTotal;
 
 
+// ============================================================
+// 起動確認
+// ============================================================
+
 console.log(
-    "app.js Ver6.2 読み込み成功"
+    "app.js 診断版 読み込み"
 );
