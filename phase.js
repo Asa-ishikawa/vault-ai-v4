@@ -1,19 +1,33 @@
 // ============================================================
 // 跳び箱AI採点システム
-// phase.js
-// 「着手候補の山」から本当の着手タイミングを選ぶ改良版
+// phase.js 改良版
+//
+// 目的：
+// 「着手候補の山」の中から、本当の着手タイミングを1フレーム選ぶ
+//
+// 改良ポイント
+// ① 候補ゾーンの中央を単純に選ばない
+// ② 着手らしさのピークを重視
+// ③ ピーク前後の手の動きを確認
+// ④ 腰の上昇開始を確認
+// ⑤ 踏切直後すぎる候補を避ける
+// ⑥ 実測値だけでは着手を決めない
+// ⑦ 候補が0でも解析を止めない
 // ============================================================
+
 
 let lastPhaseResult = null;
 
 
 // ============================================================
-// 基本データ取得
+// ランドマーク取得
 // ============================================================
 
 function getLandmarks(frame) {
 
-    if (!frame) return null;
+    if (!frame) {
+        return null;
+    }
 
     return (
         frame.landmarks ||
@@ -23,6 +37,10 @@ function getLandmarks(frame) {
 }
 
 
+// ============================================================
+// 腰中心
+// ============================================================
+
 function getHipCenter(frame) {
 
     const lm = getLandmarks(frame);
@@ -31,17 +49,23 @@ function getHipCenter(frame) {
         return null;
     }
 
-    const l = lm[23];
-    const r = lm[24];
+    const left = lm[23];
+    const right = lm[24];
 
-    if (!l || !r) return null;
+    if (!left || !right) {
+        return null;
+    }
 
     return {
-        x: (l.x + r.x) / 2,
-        y: (l.y + r.y) / 2
+        x: (left.x + right.x) / 2,
+        y: (left.y + right.y) / 2
     };
 }
 
+
+// ============================================================
+// 手首中心
+// ============================================================
 
 function getWristCenter(frame) {
 
@@ -51,17 +75,23 @@ function getWristCenter(frame) {
         return null;
     }
 
-    const l = lm[15];
-    const r = lm[16];
+    const left = lm[15];
+    const right = lm[16];
 
-    if (!l || !r) return null;
+    if (!left || !right) {
+        return null;
+    }
 
     return {
-        x: (l.x + r.x) / 2,
-        y: (l.y + r.y) / 2
+        x: (left.x + right.x) / 2,
+        y: (left.y + right.y) / 2
     };
 }
 
+
+// ============================================================
+// 足首中心
+// ============================================================
 
 function getAnkleCenter(frame) {
 
@@ -71,21 +101,29 @@ function getAnkleCenter(frame) {
         return null;
     }
 
-    const l = lm[27];
-    const r = lm[28];
+    const left = lm[27];
+    const right = lm[28];
 
-    if (!l || !r) return null;
+    if (!left || !right) {
+        return null;
+    }
 
     return {
-        x: (l.x + r.x) / 2,
-        y: (l.y + r.y) / 2
+        x: (left.x + right.x) / 2,
+        y: (left.y + right.y) / 2
     };
 }
 
 
+// ============================================================
+// 距離
+// ============================================================
+
 function distance(a, b) {
 
-    if (!a || !b) return 0;
+    if (!a || !b) {
+        return 0;
+    }
 
     return Math.sqrt(
         Math.pow(a.x - b.x, 2) +
@@ -95,7 +133,7 @@ function distance(a, b) {
 
 
 // ============================================================
-// 着手位置の実測値
+// 着手位置実測値
 // ============================================================
 
 function calculateHandHipValue(frame) {
@@ -115,12 +153,29 @@ function calculateHandHipValue(frame) {
 
 
 // ============================================================
-// フレームごとの動作データ
+// 差分
+// ============================================================
+
+function difference(a, b) {
+
+    if (
+        a == null ||
+        b == null
+    ) {
+        return 0;
+    }
+
+    return b - a;
+}
+
+
+// ============================================================
+// 動作データ作成
 // ============================================================
 
 function buildMotionData(frames) {
 
-    const data = [];
+    const motion = [];
 
     for (
         let i = 0;
@@ -137,7 +192,7 @@ function buildMotionData(frames) {
         const ankle =
             getAnkleCenter(frames[i]);
 
-        data.push({
+        motion.push({
 
             frame: i,
 
@@ -168,24 +223,7 @@ function buildMotionData(frames) {
 
     }
 
-    return data;
-}
-
-
-// ============================================================
-// 差分
-// ============================================================
-
-function diff(a, b) {
-
-    if (
-        a == null ||
-        b == null
-    ) {
-        return 0;
-    }
-
-    return b - a;
+    return motion;
 }
 
 
@@ -193,22 +231,20 @@ function diff(a, b) {
 // 踏切検出
 // ============================================================
 
-function detectTakeOff(
-    motion
-) {
+function detectTakeOff(motion) {
 
-    const length =
-        motion.length;
-
-    if (length < 5) {
+    if (
+        !motion ||
+        motion.length < 5
+    ) {
         return 0;
     }
 
-    const searchEnd =
+    const end =
         Math.max(
             3,
             Math.floor(
-                length * 0.35
+                motion.length * 0.35
             )
         );
 
@@ -217,36 +253,36 @@ function detectTakeOff(
 
     for (
         let i = 1;
-        i < searchEnd;
+        i < end;
         i++
     ) {
 
-        const p =
+        const before =
             motion[i - 1];
 
-        const c =
+        const current =
             motion[i];
 
         let score = 0;
 
         const ankleMove =
             Math.abs(
-                diff(
-                    p.ankleY,
-                    c.ankleY
+                difference(
+                    before.ankleY,
+                    current.ankleY
                 )
             );
 
         const hipMove =
             Math.abs(
-                diff(
-                    p.hipY,
-                    c.hipY
+                difference(
+                    before.hipY,
+                    current.hipY
                 )
             );
 
         score +=
-            ankleMove * 4;
+            ankleMove * 5;
 
         score +=
             hipMove * 2;
@@ -273,8 +309,8 @@ function detectTakeOff(
 // ============================================================
 // 着手候補作成
 //
-// 「候補を増やす」のではなく、
-// 着手らしい動作が存在する区間を探す。
+// ここでは「候補を作る」だけ。
+// 最終的な着手フレームは別の関数で決定する。
 // ============================================================
 
 function findHandCandidates(
@@ -284,20 +320,24 @@ function findHandCandidates(
 
     const candidates = [];
 
-    const length =
-        motion.length;
+    if (
+        !motion ||
+        motion.length < 8
+    ) {
+        return candidates;
+    }
 
     const start =
         Math.min(
-            length - 2,
+            motion.length - 3,
             takeOff + 2
         );
 
     const end =
         Math.min(
-            length - 3,
+            motion.length - 3,
             Math.floor(
-                length * 0.85
+                motion.length * 0.85
             )
         );
 
@@ -323,13 +363,13 @@ function findHandCandidates(
                 )
             ];
 
-        const c =
+        const current =
             motion[i];
 
         const n1 =
             motion[
                 Math.min(
-                    length - 1,
+                    motion.length - 1,
                     i + 1
                 )
             ];
@@ -337,7 +377,7 @@ function findHandCandidates(
         const n2 =
             motion[
                 Math.min(
-                    length - 1,
+                    motion.length - 1,
                     i + 2
                 )
             ];
@@ -347,30 +387,30 @@ function findHandCandidates(
         // 手の移動
         // ----------------------------------------------------
 
-        const handMoveBefore =
+        const handBefore =
             Math.abs(
-                diff(
+                difference(
                     p2.wristX,
-                    c.wristX
+                    current.wristX
                 )
             ) +
             Math.abs(
-                diff(
+                difference(
                     p2.wristY,
-                    c.wristY
+                    current.wristY
                 )
             );
 
-        const handMoveAfter =
+        const handAfter =
             Math.abs(
-                diff(
-                    c.wristX,
+                difference(
+                    current.wristX,
                     n2.wristX
                 )
             ) +
             Math.abs(
-                diff(
-                    c.wristY,
+                difference(
+                    current.wristY,
                     n2.wristY
                 )
             );
@@ -378,55 +418,30 @@ function findHandCandidates(
 
         // ----------------------------------------------------
         // 手の下降
-        //
-        // yが増える＝画面下方向
         // ----------------------------------------------------
 
         const handDown =
-            diff(
+            difference(
                 p1.wristY,
-                c.wristY
-            );
-
-
-        // ----------------------------------------------------
-        // 着手後の手の動き
-        // ----------------------------------------------------
-
-        const handChange =
-            Math.abs(
-                diff(
-                    c.wristY,
-                    n1.wristY
-                )
+                current.wristY
             );
 
 
         // ----------------------------------------------------
         // 腰の上昇
-        //
-        // yが減る＝上昇
         // ----------------------------------------------------
 
         const hipRiseBefore =
-            -diff(
+            -difference(
                 p1.hipY,
-                c.hipY
+                current.hipY
             );
 
         const hipRiseAfter =
-            -diff(
-                c.hipY,
+            -difference(
+                current.hipY,
                 n2.hipY
             );
-
-
-        // ----------------------------------------------------
-        // 手と腰の距離
-        // ----------------------------------------------------
-
-        const measured =
-            c.handHip;
 
 
         // ----------------------------------------------------
@@ -436,61 +451,53 @@ function findHandCandidates(
         let score = 0;
 
 
-        // 手が動いている
         if (
-            handMoveBefore >
-            0.01
+            handBefore > 0.008
         ) {
-
             score += 2;
-
         }
 
         if (
-            handMoveBefore >
-            0.02
+            handBefore > 0.018
         ) {
-
             score += 1;
-
         }
 
 
-        // 手が下降
         if (
-            handDown >
-            0.003
+            handDown > 0.003
         ) {
-
             score += 2;
-
         }
 
         if (
-            handDown >
-            0.008
+            handDown > 0.008
         ) {
-
             score += 1;
-
         }
 
 
-        // 腰が上昇
         if (
-            hipRiseBefore >
-            0.003
+            hipRiseBefore > 0.003
         ) {
-
             score += 2;
-
         }
 
 
-        // 着手後も腰が上がる
         if (
-            hipRiseAfter >
-            0.003
+            hipRiseAfter > 0.003
+        ) {
+            score += 2;
+        }
+
+
+        // ----------------------------------------------------
+        // 前後の動きが大きく変化する場所
+        // ----------------------------------------------------
+
+        if (
+            handBefore >
+            handAfter * 1.15
         ) {
 
             score += 2;
@@ -508,26 +515,21 @@ function findHandCandidates(
 
             candidates.push({
 
-                frame:
-                    i,
+                frame: i,
 
-                score:
-                    score,
+                score: score,
 
                 measured:
-                    measured,
+                    current.handHip,
 
-                handMoveBefore:
-                    handMoveBefore,
+                handBefore:
+                    handBefore,
 
-                handMoveAfter:
-                    handMoveAfter,
+                handAfter:
+                    handAfter,
 
                 handDown:
                     handDown,
-
-                handChange:
-                    handChange,
 
                 hipRiseBefore:
                     hipRiseBefore,
@@ -546,15 +548,120 @@ function findHandCandidates(
 
 
 // ============================================================
-// ★★★ 本当に着手らしい1フレームを選択 ★★★
+// 候補を連続グループにする
+// ============================================================
+
+function makeCandidateGroups(
+    candidates
+) {
+
+    if (
+        !candidates ||
+        candidates.length === 0
+    ) {
+        return [];
+    }
+
+    const sorted =
+        [...candidates].sort(
+            (a, b) =>
+                a.frame - b.frame
+        );
+
+    const groups = [];
+
+    let group = [];
+
+    for (
+        let i = 0;
+        i < sorted.length;
+        i++
+    ) {
+
+        const current =
+            sorted[i];
+
+        if (
+            group.length === 0
+        ) {
+
+            group.push(current);
+
+            continue;
+
+        }
+
+        const previous =
+            group[
+                group.length - 1
+            ];
+
+        if (
+            current.frame -
+            previous.frame <= 2
+        ) {
+
+            group.push(current);
+
+        } else {
+
+            groups.push(group);
+
+            group = [current];
+
+        }
+
+    }
+
+    if (
+        group.length > 0
+    ) {
+
+        groups.push(group);
+
+    }
+
+    return groups;
+}
+
+
+// ============================================================
+// ★着手らしさの「山」を探す
 //
-// ポイント
+// 中央ではなく、山の頂点を探す。
+// ============================================================
+
+function findPeakCandidates(
+    group
+) {
+
+    if (
+        !group ||
+        group.length === 0
+    ) {
+        return [];
+    }
+
+    let maxScore =
+        Math.max(
+            ...group.map(
+                c => c.score
+            )
+        );
+
+    return group.filter(
+        c =>
+            c.score >=
+            maxScore - 2
+    );
+}
+
+
+// ============================================================
+// ★本当の着手フレーム選択
 //
-// ・候補の最初を選ばない
-// ・実測値の最小値だけでも選ばない
-// ・候補が連続している場所を「着手ゾーン」とする
-// ・そのゾーンの中央付近を調べる
-// ・動作の切り替わりを評価
+// 「候補ゾーンの中央」ではなく、
+// 「着手らしさの山＋動作変化」を使う。
 // ============================================================
 
 function selectTrueHandContact(
@@ -569,91 +676,14 @@ function selectTrueHandContact(
     ) {
 
         return null;
-    }
-
-
-    // --------------------------------------------------------
-    // 候補をフレーム順に並べる
-    // --------------------------------------------------------
-
-    const sorted =
-        [...candidates]
-            .sort(
-                (a, b) =>
-                    a.frame -
-                    b.frame
-            );
-
-
-    // --------------------------------------------------------
-    // 連続候補グループを作る
-    // --------------------------------------------------------
-
-    const groups = [];
-
-    let currentGroup = [];
-
-
-    for (
-        let i = 0;
-        i < sorted.length;
-        i++
-    ) {
-
-        const current =
-            sorted[i];
-
-        if (
-            currentGroup.length === 0
-        ) {
-
-            currentGroup.push(
-                current
-            );
-
-            continue;
-        }
-
-
-        const previous =
-            currentGroup[
-                currentGroup.length - 1
-            ];
-
-
-        if (
-            current.frame -
-            previous.frame <= 2
-        ) {
-
-            currentGroup.push(
-                current
-            );
-
-        } else {
-
-            groups.push(
-                currentGroup
-            );
-
-            currentGroup = [
-                current
-            ];
-
-        }
 
     }
 
 
-    if (
-        currentGroup.length > 0
-    ) {
-
-        groups.push(
-            currentGroup
+    const groups =
+        makeCandidateGroups(
+            candidates
         );
-
-    }
 
 
     console.log(
@@ -662,65 +692,29 @@ function selectTrueHandContact(
     );
 
 
-    // --------------------------------------------------------
-    // 最も「着手らしい」グループを選ぶ
-    // --------------------------------------------------------
+    // ========================================================
+    // 各グループを評価
+    // ========================================================
 
-    let bestGroup =
-        null;
-
-    let bestGroupScore =
-        -Infinity;
+    const groupResults = [];
 
 
     for (
-        let i = 0;
-        i < groups.length;
-        i++
+        let g = 0;
+        g < groups.length;
+        g++
     ) {
 
         const group =
-            groups[i];
+            groups[g];
+
+        const peaks =
+            findPeakCandidates(
+                group
+            );
 
 
-        const first =
-            group[0];
-
-        const last =
-            group[
-                group.length - 1
-            ];
-
-
-        // 踏切から近すぎるグループは減点
-        const fromTakeOff =
-            first.frame -
-            takeOff;
-
-
-        let groupScore =
-            group.length * 2;
-
-
-        if (
-            fromTakeOff < 3
-        ) {
-
-            groupScore -= 5;
-
-        }
-
-        else if (
-            fromTakeOff < 5
-        ) {
-
-            groupScore -= 1;
-
-        }
-
-
-        // グループ内の最大スコア
-        const maxScore =
+        let groupMax =
             Math.max(
                 ...group.map(
                     c => c.score
@@ -728,34 +722,109 @@ function selectTrueHandContact(
             );
 
 
+        let groupAverage =
+            group.reduce(
+                (sum, c) =>
+                    sum + c.score,
+                0
+            ) /
+            group.length;
+
+
+        const firstFrame =
+            group[0].frame;
+
+        const lastFrame =
+            group[
+                group.length - 1
+            ].frame;
+
+
+        // 踏切からの距離
+        const distanceFromTakeOff =
+            firstFrame -
+            takeOff;
+
+
+        let groupScore = 0;
+
+
+        // 山の高さ
         groupScore +=
-            maxScore * 2;
+            groupMax * 3;
 
 
-        // グループがある程度続いている
+        // 平均的な着手らしさ
+        groupScore +=
+            groupAverage * 1.5;
+
+
+        // 連続している候補
+        groupScore +=
+            Math.min(
+                group.length,
+                10
+            ) * 0.5;
+
+
+        // 踏切直後すぎる場合は減点
         if (
-            group.length >= 3
+            distanceFromTakeOff <= 2
         ) {
 
-            groupScore += 3;
+            groupScore -= 8;
+
+        }
+
+        else if (
+            distanceFromTakeOff === 3
+        ) {
+
+            groupScore -= 3;
 
         }
 
 
+        // あまりにも後半なら減点
         if (
-            groupScore >
-            bestGroupScore
+            firstFrame >
+            motion.length * 0.75
         ) {
 
-            bestGroupScore =
-                groupScore;
-
-            bestGroup =
-                group;
+            groupScore -= 4;
 
         }
+
+
+        groupResults.push({
+
+            group:
+                group,
+
+            peaks:
+                peaks,
+
+            score:
+                groupScore
+
+        });
 
     }
+
+
+    // ========================================================
+    // 一番着手らしいグループ
+    // ========================================================
+
+    groupResults.sort(
+        (a, b) =>
+            b.score -
+            a.score
+    );
+
+
+    const bestGroup =
+        groupResults[0];
 
 
     if (!bestGroup) {
@@ -764,47 +833,49 @@ function selectTrueHandContact(
 
 
     console.log(
-        "選択した着手ゾーン:",
-        bestGroup[0].frame,
+        "選択候補グループ:",
+        bestGroup.group[0].frame,
         "～",
-        bestGroup[
-            bestGroup.length - 1
+        bestGroup.group[
+            bestGroup.group.length - 1
         ].frame
     );
 
 
-    // --------------------------------------------------------
-    // グループ内から1フレームを選ぶ
-    //
-    // 「動作の切り替わり」が強い場所を探す
-    // --------------------------------------------------------
+    // ========================================================
+    // グループ内のピーク
+    // ========================================================
+
+    const peaks =
+        bestGroup.peaks;
+
 
     let best =
         null;
 
-    let bestScore =
+    let bestFinalScore =
         -Infinity;
 
 
     for (
         let i = 0;
-        i < bestGroup.length;
+        i < peaks.length;
         i++
     ) {
 
         const candidate =
-            bestGroup[i];
+            peaks[i];
 
         const frame =
             candidate.frame;
 
 
-        let score =
-            candidate.score * 2;
+        let finalScore =
+            candidate.score * 4;
 
 
         // ----------------------------------------------------
-        // 前後の手の動き
+        // 前後フレーム
         // ----------------------------------------------------
 
         const before =
@@ -826,6 +897,22 @@ function selectTrueHandContact(
                 )
             ];
 
+        const before2 =
+            motion[
+                Math.max(
+                    0,
+                    frame - 2
+                )
+            ];
+
+        const after2 =
+            motion[
+                Math.min(
+                    motion.length - 1,
+                    frame + 2
+                )
+            ];
+
 
         if (
             before &&
@@ -833,47 +920,57 @@ function selectTrueHandContact(
             after
         ) {
 
-            const beforeHand =
+            // ------------------------------------------------
+            // 手の速度
+            // ------------------------------------------------
+
+            const beforeMove =
                 Math.abs(
-                    diff(
+                    difference(
                         before.wristX,
                         current.wristX
                     )
                 ) +
                 Math.abs(
-                    diff(
+                    difference(
                         before.wristY,
                         current.wristY
                     )
                 );
 
-            const afterHand =
+
+            const afterMove =
                 Math.abs(
-                    diff(
+                    difference(
                         current.wristX,
                         after.wristX
                     )
                 ) +
                 Math.abs(
-                    diff(
+                    difference(
                         current.wristY,
                         after.wristY
                     )
                 );
 
 
-            // ------------------------------------------------
             // 動きのピーク
-            // ------------------------------------------------
-
             if (
-                beforeHand >=
-                0.005 &&
-                beforeHand >=
-                afterHand
+                beforeMove >
+                0.008
             ) {
 
-                score += 4;
+                finalScore += 2;
+
+            }
+
+
+            if (
+                beforeMove >
+                afterMove * 1.10
+            ) {
+
+                finalScore += 4;
 
             }
 
@@ -882,25 +979,86 @@ function selectTrueHandContact(
             // 腰の上昇開始
             // ------------------------------------------------
 
-            const beforeHip =
-                -diff(
+            const hipBefore =
+                -difference(
                     before.hipY,
                     current.hipY
                 );
 
-            const afterHip =
-                -diff(
+            const hipAfter =
+                -difference(
                     current.hipY,
                     after.hipY
                 );
 
 
             if (
-                beforeHip >= 0 &&
-                afterHip > 0
+                hipBefore >= 0 &&
+                hipAfter > 0
             ) {
 
-                score += 3;
+                finalScore += 4;
+
+            }
+
+
+            if (
+                hipAfter >
+                hipBefore
+            ) {
+
+                finalScore += 2;
+
+            }
+
+        }
+
+
+        // ----------------------------------------------------
+        // 2フレーム前後の動作変化
+        // ----------------------------------------------------
+
+        if (
+            before2 &&
+            after2
+        ) {
+
+            const moveBefore2 =
+                Math.abs(
+                    difference(
+                        before2.wristX,
+                        current.wristX
+                    )
+                ) +
+                Math.abs(
+                    difference(
+                        before2.wristY,
+                        current.wristY
+                    )
+                );
+
+
+            const moveAfter2 =
+                Math.abs(
+                    difference(
+                        current.wristX,
+                        after2.wristX
+                    )
+                ) +
+                Math.abs(
+                    difference(
+                        current.wristY,
+                        after2.wristY
+                    )
+                );
+
+
+            if (
+                moveBefore2 >
+                moveAfter2 * 1.15
+            ) {
+
+                finalScore += 3;
 
             }
 
@@ -911,64 +1069,64 @@ function selectTrueHandContact(
         // 踏切直後すぎる候補を避ける
         // ----------------------------------------------------
 
-        const delta =
+        const fromTakeOff =
             frame -
             takeOff;
 
 
         if (
-            delta <= 2
+            fromTakeOff <= 2
         ) {
 
-            score -= 8;
+            finalScore -= 10;
 
         }
 
         else if (
-            delta === 3
+            fromTakeOff === 3
         ) {
 
-            score -= 3;
+            finalScore -= 4;
 
         }
 
 
         // ----------------------------------------------------
-        // グループの端より中央を少し優先
-        // ----------------------------------------------------
-
-        const centerIndex =
-            (
-                bestGroup[0].frame +
-                bestGroup[
-                    bestGroup.length - 1
-                ].frame
-            ) / 2;
-
-
-        const centerDistance =
-            Math.abs(
-                frame -
-                centerIndex
-            );
-
-
-        score -=
-            centerDistance *
-            0.15;
-
-
-        // ----------------------------------------------------
-        // 最終選択
+        // 実測値は「補助情報」にする
+        //
+        // 小さいほど良い、とは決めない。
         // ----------------------------------------------------
 
         if (
-            score >
-            bestScore
+            Number.isFinite(
+                candidate.measured
+            )
         ) {
 
-            bestScore =
-                score;
+            // 極端に異常な値だけ少し減点
+            if (
+                candidate.measured >
+                1.5
+            ) {
+
+                finalScore -= 3;
+
+            }
+
+        }
+
+
+        // ----------------------------------------------------
+        // 最終決定
+        // ----------------------------------------------------
+
+        if (
+            finalScore >
+            bestFinalScore
+        ) {
+
+            bestFinalScore =
+                finalScore;
 
             best = {
 
@@ -976,7 +1134,7 @@ function selectTrueHandContact(
 
                 selectionScore:
                     Number(
-                        score.toFixed(3)
+                        finalScore.toFixed(3)
                     )
 
             };
@@ -992,8 +1150,6 @@ function selectTrueHandContact(
 
 // ============================================================
 // 最高点
-//
-// 必ず「着手より後」を調べる
 // ============================================================
 
 function detectHighestHip(
@@ -1006,7 +1162,6 @@ function detectHighestHip(
             frames.length - 1,
             handContact + 1
         );
-
 
     let highest =
         start;
@@ -1029,7 +1184,6 @@ function detectHighestHip(
         if (!hip) {
             continue;
         }
-
 
         if (
             hip.y <
@@ -1070,8 +1224,7 @@ function detectLanding(
 
 
     if (
-        start >=
-        frames.length
+        start >= frames.length
     ) {
 
         return frames.length - 1;
@@ -1100,7 +1253,10 @@ function detectLanding(
             );
 
 
-        if (!a || !b) {
+        if (
+            !a ||
+            !b
+        ) {
             continue;
         }
 
@@ -1131,7 +1287,7 @@ function detectLanding(
 
 
 // ============================================================
-// 画面診断
+// 診断情報表示
 // ============================================================
 
 function showPhaseDiagnostic(
@@ -1168,7 +1324,6 @@ function showPhaseDiagnostic(
 
         el.style.borderRadius =
             "8px";
-
 
         const phaseInfo =
             document.getElementById(
@@ -1233,7 +1388,7 @@ function showPhaseDiagnostic(
                     ? c.measured.toFixed(3)
                     : "-"
             }
-           　
+            　
             着手らしさ
             ${c.score}
             <br>
@@ -1271,8 +1426,8 @@ function showPhaseDiagnostic(
 
         選択着手フレーム：
         ${
-            result.handContact
-            ?? "-"
+            result.handContact ??
+            "-"
         }
 
         <br>
@@ -1290,8 +1445,8 @@ function showPhaseDiagnostic(
 
         選択スコア：
         ${
-            result.selectionScore
-            ?? "-"
+            result.selectionScore ??
+            "-"
         }
 
         <hr>
@@ -1316,18 +1471,18 @@ function showPhaseDiagnostic(
 function detectPhases(frames) {
 
     console.log(
-        "================================"
+        "======================================"
     );
 
     console.log(
-        "phase.js 着手タイミング改良版"
+        "phase.js 改良版 読み込み・解析開始"
     );
 
     console.log(
         "取得フレーム数:",
         frames
-        ? frames.length
-        : 0
+            ? frames.length
+            : 0
     );
 
 
@@ -1345,9 +1500,9 @@ function detectPhases(frames) {
     }
 
 
-    // --------------------------------------------------------
+    // ========================================================
     // 動作データ
-    // --------------------------------------------------------
+    // ========================================================
 
     const motion =
         buildMotionData(
@@ -1355,9 +1510,9 @@ function detectPhases(frames) {
         );
 
 
-    // --------------------------------------------------------
+    // ========================================================
     // 踏切
-    // --------------------------------------------------------
+    // ========================================================
 
     const takeOff =
         detectTakeOff(
@@ -1365,9 +1520,9 @@ function detectPhases(frames) {
         );
 
 
-    // --------------------------------------------------------
+    // ========================================================
     // 着手候補
-    // --------------------------------------------------------
+    // ========================================================
 
     const candidates =
         findHandCandidates(
@@ -1382,9 +1537,9 @@ function detectPhases(frames) {
     );
 
 
-    // --------------------------------------------------------
-    // ★候補の山から本当の着手を選択
-    // --------------------------------------------------------
+    // ========================================================
+    // 本当の着手を選ぶ
+    // ========================================================
 
     const selected =
         selectTrueHandContact(
@@ -1394,18 +1549,17 @@ function detectPhases(frames) {
         );
 
 
-    // --------------------------------------------------------
-    // 候補なしの場合
-    // --------------------------------------------------------
+    // ========================================================
+    // 候補がない場合
+    // ========================================================
 
     if (!selected) {
 
         console.warn(
-            "着手候補から選択できませんでした"
+            "着手候補なし"
         );
 
 
-        // 最低限のフォールバック
         const fallbackFrame =
             Math.min(
                 motion.length - 2,
@@ -1424,26 +1578,6 @@ function detectPhases(frames) {
                     fallbackFrame
                 ]
             );
-
-
-        const fallback = {
-
-            frame:
-                fallbackFrame,
-
-            score:
-                0,
-
-            measured:
-                fallbackMeasured,
-
-            selectionScore:
-                0,
-
-            fallback:
-                true
-
-        };
 
 
         const highest =
@@ -1503,9 +1637,9 @@ function detectPhases(frames) {
     }
 
 
-    // --------------------------------------------------------
+    // ========================================================
     // 最高点
-    // --------------------------------------------------------
+    // ========================================================
 
     const highestHip =
         detectHighestHip(
@@ -1514,9 +1648,9 @@ function detectPhases(frames) {
         );
 
 
-    // --------------------------------------------------------
+    // ========================================================
     // 着地
-    // --------------------------------------------------------
+    // ========================================================
 
     const landing =
         detectLanding(
@@ -1525,9 +1659,9 @@ function detectPhases(frames) {
         );
 
 
-    // --------------------------------------------------------
+    // ========================================================
     // 最終結果
-    // --------------------------------------------------------
+    // ========================================================
 
     const result = {
 
@@ -1562,9 +1696,9 @@ function detectPhases(frames) {
         result;
 
 
-    // --------------------------------------------------------
+    // ========================================================
     // ログ
-    // --------------------------------------------------------
+    // ========================================================
 
     console.log(
         "========== phase結果 =========="
@@ -1596,23 +1730,28 @@ function detectPhases(frames) {
     );
 
     console.log(
-        "選択フレーム:",
+        "選択着手フレーム:",
         result.handContact
     );
 
     console.log(
-        "実測値:",
+        "着手実測値:",
         result.handMeasured
     );
 
     console.log(
-        "================================"
+        "選択スコア:",
+        result.selectionScore
+    );
+
+    console.log(
+        "======================================"
     );
 
 
-    // --------------------------------------------------------
+    // ========================================================
     // 画面表示
-    // --------------------------------------------------------
+    // ========================================================
 
     showPhaseDiagnostic(
         result
@@ -1624,7 +1763,7 @@ function detectPhases(frames) {
 
 
 // ============================================================
-// クリア
+// 解析リセット
 // ============================================================
 
 function clearPhase() {
