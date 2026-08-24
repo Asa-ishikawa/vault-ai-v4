@@ -1,13 +1,17 @@
-// ===============================
-// 跳び箱AI採点システム Ver5.8
-// feedback.js
-// 実測値表示・安定版
-// ===============================
+// ============================================================
+// 跳び箱AI採点システム
+// feedback.js 改良版
+//
+// score.js 改良版対応
+// 「評価結果を取得できませんでした」修正版
+// ============================================================
+
 
 function showFeedback(result) {
 
     const feedback =
         document.getElementById("feedback");
+
 
     if (!feedback) {
 
@@ -16,123 +20,270 @@ function showFeedback(result) {
         );
 
         return;
+
     }
 
-    if (
-        !result ||
-        !result.details
-    ) {
+
+    // ========================================================
+    // result確認
+    // ========================================================
+
+    if (!result) {
 
         feedback.innerHTML =
             "評価結果を取得できませんでした。";
 
+        console.error(
+            "feedback.js：resultがありません"
+        );
+
         return;
+
     }
 
 
-    // ===============================
-    // 各評価データ
-    // ===============================
-
-    const knee =
-        result.details.knee || {};
-
-    const hip =
-        result.details.hip || {};
-
-    const hand =
-        result.details.hand || {};
-
-    const takeOff =
-        result.details.takeOff || {};
-
-    const landing =
-        result.details.landing || {};
+    console.log(
+        "feedback.js 受信result:",
+        result
+    );
 
 
-    // ===============================
-    // 実測値を安全に表示
-    // ===============================
+    // ========================================================
+    // 安全取得関数
+    // ========================================================
 
-    function valueText(value) {
+    function safeScore(value) {
+
+        const n =
+            Number(value);
+
+        if (
+            !Number.isFinite(n)
+        ) {
+
+            return 0;
+
+        }
+
+        return n;
+
+    }
+
+
+    function safeValue(
+        value,
+        digits = 3
+    ) {
 
         if (
             value === undefined ||
-            value === null
+            value === null ||
+            value === ""
         ) {
 
             return "取得できませんでした";
 
         }
 
+
+        const n =
+            Number(value);
+
+
+        if (
+            Number.isFinite(n)
+        ) {
+
+            return n.toFixed(digits);
+
+        }
+
+
         return String(value);
 
     }
 
 
-    // ===============================
-    // 腰の実測値
-    // ===============================
+    function safeText(
+        value,
+        defaultText
+    ) {
 
-    const hipMeasured =
-        hip.measured !== undefined
-            ? hip.measured
-            : hip.value !== undefined
-                ? Number(hip.value).toFixed(3)
-                : "取得できませんでした";
+        if (
+            value === undefined ||
+            value === null ||
+            value === ""
+        ) {
 
+            return defaultText;
 
-    // ===============================
-    // 膝の実測値
-    // ===============================
-
-    const kneeMeasured =
-        knee.measured !== undefined
-            ? knee.measured
-            : knee.value !== undefined
-                ? Number(knee.value).toFixed(1) + "°"
-                : "取得できませんでした";
+        }
 
 
-    // ===============================
-    // 着手の実測値
-    // ===============================
+        return String(value);
+
+    }
+
+
+    // ========================================================
+    // Dスコア
+    // ========================================================
+
+    const dScore =
+        safeScore(
+            result.score
+        );
+
+
+    // ========================================================
+    // 各項目
+    //
+    // score.js 改良版では
+    //
+    // takeOffScore
+    // handScore
+    // hipScore
+    // kneeScore
+    // landingScore
+    //
+    // となっている。
+    // ========================================================
+
+    const takeOffScore =
+        safeScore(
+            result.takeOffScore
+        );
+
+
+    const handScore =
+        safeScore(
+            result.handScore
+        );
+
+
+    const hipScore =
+        safeScore(
+            result.hipScore
+        );
+
+
+    const kneeScore =
+        safeScore(
+            result.kneeScore
+        );
+
+
+    const landingScore =
+        safeScore(
+            result.landingScore
+        );
+
+
+    // ========================================================
+    // 実測値
+    // ========================================================
 
     const handMeasured =
-        hand.measured !== undefined
-            ? hand.measured
-            : hand.value !== undefined
-                ? Number(hand.value).toFixed(3)
-                : "取得できませんでした";
+        safeValue(
+            result.handMeasured,
+            3
+        );
 
 
-    // ===============================
-    // 踏切の実測値
-    // ===============================
-
-    const takeOffMeasured =
-        takeOff.measured !== undefined
-            ? takeOff.measured
-            : takeOff.value !== undefined
-                ? Number(takeOff.value).toFixed(3)
-                : "取得できませんでした";
+    const hipMeasured =
+        safeValue(
+            result.hipMeasured,
+            3
+        );
 
 
-    // ===============================
-    // 着地の実測値
-    // ===============================
+    const kneeMeasured =
+        safeValue(
+            result.kneeMeasured,
+            1
+        );
+
 
     const landingMeasured =
-        landing.measured !== undefined
-            ? landing.measured
-            : landing.value !== undefined
-                ? Number(landing.value).toFixed(3)
-                : "取得できませんでした";
+        safeValue(
+            result.landingMeasured,
+            3
+        );
 
 
-    // ===============================
-    // HTML生成
-    // ===============================
+    const takeOffMeasured =
+        safeValue(
+            result.takeOffMeasured,
+            3
+        );
+
+
+    // ========================================================
+    // コメント
+    // ========================================================
+
+    const takeOffText =
+        safeText(
+            result.takeOffText,
+            "踏切の状態を確認しましょう。"
+        );
+
+
+    const handText =
+        safeText(
+            result.handText,
+            "着手位置を確認しましょう。"
+        );
+
+
+    const hipText =
+        safeText(
+            result.hipText,
+            "腰の位置を確認しましょう。"
+        );
+
+
+    const kneeText =
+        safeText(
+            result.kneeText,
+            "膝の伸びを確認しましょう。"
+        );
+
+
+    const landingText =
+        safeText(
+            result.landingText,
+            "着地の安定を確認しましょう。"
+        );
+
+
+    // ========================================================
+    // 着手フレーム情報
+    // ========================================================
+
+    const handContactFrame =
+        Number.isFinite(
+            Number(
+                result.handContactFrame
+            )
+        )
+            ? result.handContactFrame
+            : "-";
+
+
+    const candidateCount =
+        Number.isFinite(
+            Number(
+                result.candidateCount
+            )
+        )
+            ? result.candidateCount
+            : 0;
+
+
+    // ========================================================
+    // HTML表示
+    // ========================================================
 
     feedback.innerHTML = `
 
@@ -140,87 +291,76 @@ function showFeedback(result) {
 
         <h2>
             Dスコア：
-            ${Number(result.score).toFixed(1)}点
+            ${dScore.toFixed(1)}点
         </h2>
 
 
-        <!-- ================= -->
+        <!-- ================================================ -->
         <!-- ① 膝 -->
-        <!-- ================= -->
+        <!-- ================================================ -->
 
         <h3>① 膝の伸び</h3>
 
         <p>
-            ${valueText(knee.text)}
+            ${kneeText}
         </p>
 
         <p>
             評価：
             <strong>
-                ${Number(knee.score) || 0}/2点
+                ${kneeScore}/2点
             </strong>
         </p>
 
         <p>
-            <strong>膝角度（実測値）：</strong>
-            ${kneeMeasured}
+            <strong>
+                膝角度（実測値）：
+            </strong>
+
+            ${kneeMeasured}°
         </p>
 
 
-        <!-- ================= -->
+        <!-- ================================================ -->
         <!-- ② 腰 -->
-        <!-- ================= -->
+        <!-- ================================================ -->
 
         <h3>② 腰の位置</h3>
 
         <p>
-            ${valueText(hip.text)}
+            ${hipText}
         </p>
 
         <p>
             評価：
             <strong>
-                ${Number(hip.score) || 0}/2点
+                ${hipScore}/2点
             </strong>
         </p>
 
         <p>
             <strong>
-                腰上昇量（実測値）：
+                腰位置（実測値）：
             </strong>
+
             ${hipMeasured}
         </p>
 
-        <p>
-            <strong>現在の判定基準</strong><br>
 
-            0点：
-            ${valueText(hip.threshold0)}
-            <br>
-
-            1点：
-            ${valueText(hip.threshold1)}
-            <br>
-
-            2点：
-            ${valueText(hip.threshold2)}
-        </p>
-
-
-        <!-- ================= -->
+        <!-- ================================================ -->
         <!-- ③ 着手 -->
-        <!-- ================= -->
+        <!-- ================================================ -->
 
         <h3>③ 着手位置</h3>
 
         <p>
-            ${valueText(hand.text)}
+            ${handText}
         </p>
 
         <p>
             評価：
             <strong>
-                ${Number(hand.score) || 0}/2点
+                ${handScore}/2点
             </strong>
         </p>
 
@@ -228,24 +368,41 @@ function showFeedback(result) {
             <strong>
                 着手位置（実測値）：
             </strong>
+
             ${handMeasured}
         </p>
 
+        <p>
+            <strong>
+                着手候補数：
+            </strong>
 
-        <!-- ================= -->
-        <!-- ④ 踏切 -->
-        <!-- ================= -->
+            ${candidateCount}
+        </p>
+
+        <p>
+            <strong>
+                選択着手フレーム：
+            </strong>
+
+            ${handContactFrame}
+        </p>
+
+
+        <!-- ================================================ -->
+        <!-- ④ 両足踏切 -->
+        <!-- ================================================ -->
 
         <h3>④ 両足踏切</h3>
 
         <p>
-            ${valueText(takeOff.text)}
+            ${takeOffText}
         </p>
 
         <p>
             評価：
             <strong>
-                ${Number(takeOff.score) || 0}/2点
+                ${takeOffScore}/2点
             </strong>
         </p>
 
@@ -253,24 +410,25 @@ function showFeedback(result) {
             <strong>
                 踏切（実測値）：
             </strong>
+
             ${takeOffMeasured}
         </p>
 
 
-        <!-- ================= -->
+        <!-- ================================================ -->
         <!-- ⑤ 着地 -->
-        <!-- ================= -->
+        <!-- ================================================ -->
 
         <h3>⑤ 着地の安定</h3>
 
         <p>
-            ${valueText(landing.text)}
+            ${landingText}
         </p>
 
         <p>
             評価：
             <strong>
-                ${Number(landing.score) || 0}/2点
+                ${landingScore}/2点
             </strong>
         </p>
 
@@ -278,13 +436,14 @@ function showFeedback(result) {
             <strong>
                 着地（実測値）：
             </strong>
+
             ${landingMeasured}
         </p>
 
 
-        <!-- ================= -->
+        <!-- ================================================ -->
         <!-- 総合コメント -->
-        <!-- ================= -->
+        <!-- ================================================ -->
 
         <h3>総合コメント</h3>
 
@@ -295,72 +454,115 @@ function showFeedback(result) {
     `;
 
 
-    // ===============================
-    // コンソール確認
-    // ===============================
+    // ========================================================
+    // コンソール
+    // ========================================================
 
     console.log(
-        "========== FEEDBACK Ver5.8 =========="
+        "======================================"
     );
 
     console.log(
-        "Dスコア:",
-        result.score
+        "FEEDBACK 改良版"
     );
 
     console.log(
-        "膝実測値:",
-        kneeMeasured
+        "Dスコア：",
+        dScore
     );
 
     console.log(
-        "腰実測値:",
-        hipMeasured
+        "踏切：",
+        takeOffScore
     );
 
     console.log(
-        "着手実測値:",
-        handMeasured
+        "着手：",
+        handScore,
+        "実測値：",
+        result.handMeasured
     );
 
     console.log(
-        "踏切実測値:",
-        takeOffMeasured
+        "腰：",
+        hipScore,
+        "実測値：",
+        result.hipMeasured
     );
 
     console.log(
-        "着地実測値:",
-        landingMeasured
+        "膝：",
+        kneeScore,
+        "実測値：",
+        result.kneeMeasured
+    );
+
+    console.log(
+        "着地：",
+        landingScore,
+        "実測値：",
+        result.landingMeasured
+    );
+
+    console.log(
+        "着手候補数：",
+        candidateCount
+    );
+
+    console.log(
+        "選択着手フレーム：",
+        handContactFrame
+    );
+
+    console.log(
+        "======================================"
     );
 
 }
 
 
-// ===============================
+// ============================================================
 // 総合コメント
-// ===============================
+// ============================================================
 
-function createTotalComment(result) {
+function createTotalComment(
+    result
+) {
 
     const score =
         Number(result.score);
 
 
-    if (score >= 9) {
+    if (
+        !Number.isFinite(score)
+    ) {
+
+        return "評価結果を確認してください。";
+
+    }
+
+
+    if (
+        score >= 9
+    ) {
 
         return "とてもすばらしい動きです。各動作が安定しています。";
 
     }
 
 
-    if (score >= 7) {
+    if (
+        score >= 7
+    ) {
 
         return "すばらしい動きです。できている部分を維持しながら、さらに安定させましょう。";
 
     }
 
 
-    if (score >= 5) {
+    if (
+        score >= 5
+    ) {
 
         return "基本的な動きができています。苦手な部分を意識して練習しましょう。";
 
@@ -372,14 +574,21 @@ function createTotalComment(result) {
 }
 
 
-// ===============================
+// ============================================================
 // 公開
-// ===============================
+// ============================================================
 
 window.showFeedback =
     showFeedback;
 
+window.createTotalComment =
+    createTotalComment;
+
+
+// ============================================================
+// 読み込み確認
+// ============================================================
 
 console.log(
-    "feedback.js Ver5.8 読み込み成功"
+    "feedback.js 改良版 読み込み成功"
 );
