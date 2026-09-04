@@ -1237,20 +1237,29 @@ function calculateTakeOffScore(
 // 0.10超 → 0点
 // ============================================================
 
+// ============================================================
+// 着地判定 Ver6.3.2
+// 着地判定だけ改良
+//
+// 改良内容
+// ・着地フレーム周辺を複数フレーム確認
+// ・1フレームだけの異常値に引っ張られにくくする
+// ・中央値を利用して安定性を評価
+// ・他4項目の採点ロジックは変更しない
+// ============================================================
+
 function calculateLandingScore(
     frames,
     frameIndex
 ) {
 
-    const measured =
-        calculateLandingDifference(
-            frames,
-            frameIndex
-        );
-
+    // ========================================================
+    // 基本チェック
+    // ========================================================
 
     if (
-        !Number.isFinite(measured)
+        !Array.isArray(frames) ||
+        frames.length === 0
     ) {
 
         return {
@@ -1279,11 +1288,309 @@ function calculateLandingScore(
     }
 
 
+    // ========================================================
+    // 着地フレームを安全に取得
+    // ========================================================
+
+    const landingFrame =
+        safeFrameIndex(
+            frameIndex,
+            frames.length - 1,
+            frames.length - 1
+        );
+
+
+    // ========================================================
+    // 着地周辺のフレームを取得
+    //
+    // 着地直前2フレーム
+    // 着地フレーム
+    // 着地直後1フレーム
+    //
+    // 合計4フレーム
+    // ========================================================
+
+    const start =
+        Math.max(
+            0,
+            landingFrame - 2
+        );
+
+
+    const end =
+        Math.min(
+            frames.length - 1,
+            landingFrame + 1
+        );
+
+
+    const values = [];
+
+
+    for (
+        let i = start;
+        i <= end;
+        i++
+    ) {
+
+        const frame =
+            frames[i];
+
+
+        if (!frame) {
+
+            continue;
+
+        }
+
+
+        // ----------------------------------------------------
+        // まずフレームに保存された着地実測値を確認
+        // ----------------------------------------------------
+
+        const directValues = [
+
+            frame.landingMeasured,
+
+            frame.landingValue,
+
+            frame.landingDifference,
+
+            frame.landingDiff
+
+        ];
+
+
+        let found = false;
+
+
+        for (
+            let j = 0;
+            j < directValues.length;
+            j++
+        ) {
+
+            const value =
+                Number(
+                    directValues[j]
+                );
+
+
+            if (
+                Number.isFinite(value)
+            ) {
+
+                values.push(
+                    Math.abs(value)
+                );
+
+                found = true;
+
+                break;
+
+            }
+
+        }
+
+
+        // ----------------------------------------------------
+        // 保存値がない場合は左右足の距離を計算
+        // ----------------------------------------------------
+
+        if (found) {
+
+            continue;
+
+        }
+
+
+        const landmarks =
+            getLandmarks(
+                frame
+            );
+
+
+        if (
+            !landmarks ||
+            landmarks.length < 29
+        ) {
+
+            continue;
+
+        }
+
+
+        const left =
+            landmarks[27];
+
+
+        const right =
+            landmarks[28];
+
+
+        if (
+            !left ||
+            !right
+        ) {
+
+            continue;
+
+        }
+
+
+        const leftVisibility =
+            left.visibility !== undefined
+                ? Number(
+                    left.visibility
+                )
+                : 1;
+
+
+        const rightVisibility =
+            right.visibility !== undefined
+                ? Number(
+                    right.visibility
+                )
+                : 1;
+
+
+        // 骨格認識が低いフレームは除外
+        if (
+            leftVisibility < 0.45 ||
+            rightVisibility < 0.45
+        ) {
+
+            continue;
+
+        }
+
+
+        const dx =
+            Number(left.x) -
+            Number(right.x);
+
+
+        const dy =
+            Number(left.y) -
+            Number(right.y);
+
+
+        const distance =
+            Math.sqrt(
+                dx * dx +
+                dy * dy
+            );
+
+
+        if (
+            Number.isFinite(
+                distance
+            )
+        ) {
+
+            values.push(
+                distance
+            );
+
+        }
+
+    }
+
+
+    // ========================================================
+    // データなし
+    // ========================================================
+
+    if (
+        values.length === 0
+    ) {
+
+        return {
+
+            score: 0,
+
+            value: null,
+
+            measured:
+                "取得できませんでした",
+
+            text:
+                "着地の安定を確認しましょう。",
+
+            threshold0:
+                "0.10より大きい",
+
+            threshold1:
+                "0.05より大きく0.10以下",
+
+            threshold2:
+                "0.05以下"
+
+        };
+
+    }
+
+
+    // ========================================================
+    // 中央値を計算
+    //
+    // 1フレームだけ極端な値になっても
+    // 判定全体が大きく変わりにくい
+    // ========================================================
+
+    const sortedValues =
+        [...values].sort(
+            (a, b) => a - b
+        );
+
+
+    let measured;
+
+
+    const middle =
+        Math.floor(
+            sortedValues.length / 2
+        );
+
+
+    if (
+        sortedValues.length % 2 === 0
+    ) {
+
+        measured =
+            (
+                sortedValues[middle - 1] +
+                sortedValues[middle]
+            ) / 2;
+
+    }
+
+    else {
+
+        measured =
+            sortedValues[middle];
+
+    }
+
+
+    // ========================================================
+    // 着地評価
+    //
+    // 現在の基準を維持
+    //
+    // 0.05以下       → 2点
+    // 0.05～0.10     → 1点
+    // 0.10超         → 0点
+    // ========================================================
+
     let score = 0;
+
     let text = "";
 
 
-    if (measured <= 0.05) {
+    if (
+        measured <= 0.05
+    ) {
 
         score = 2;
 
@@ -1292,7 +1599,9 @@ function calculateLandingScore(
 
     }
 
-    else if (measured <= 0.10) {
+    else if (
+        measured <= 0.10
+    ) {
 
         score = 1;
 
@@ -1311,17 +1620,63 @@ function calculateLandingScore(
     }
 
 
+    // ========================================================
+    // 診断情報
+    // ========================================================
+
+    console.log(
+        "========== 着地判定 Ver6.3.2 =========="
+    );
+
+    console.log(
+        "phase着地フレーム:",
+        frameIndex
+    );
+
+    console.log(
+        "着地評価フレーム範囲:",
+        start,
+        "～",
+        end
+    );
+
+    console.log(
+        "取得できた着地値:",
+        values
+    );
+
+    console.log(
+        "着地候補値の中央値:",
+        measured
+    );
+
+    console.log(
+        "着地点:",
+        score
+    );
+
+
+    // ========================================================
+    // 結果
+    // ========================================================
+
     return {
 
-        score: score,
+        score:
+            score,
 
         value:
-            round3(measured),
+            round3(
+                measured
+            ),
 
         measured:
-            round3(measured),
+            round3(
+                measured
+            ),
 
-        text: text,
+        text:
+            text,
 
         threshold0:
             "0.10より大きい",
@@ -1330,9 +1685,16 @@ function calculateLandingScore(
             "0.05より大きく0.10以下",
 
         threshold2:
-            "0.05以下"
+            "0.05以下",
+
+        landingFrame:
+            landingFrame,
+
+        candidateCount:
+            values.length
 
     };
+
 }
 
 
