@@ -828,22 +828,231 @@ function calculateTakeOffScore(
     frameIndex
 ) {
 
-    const frame =
-        getFrame(
-            frames,
-            frameIndex
+    // ========================================================
+    // 踏切周辺の候補フレーム
+    // ========================================================
+
+    const start =
+        Math.max(
+            0,
+            frameIndex - 3
+        );
+
+    const end =
+        Math.min(
+            frames.length - 1,
+            frameIndex + 3
         );
 
 
-    const measured =
-        calculateTakeOffDifference(
-            frame
-        );
+    const candidates = [];
 
 
-    // 左右足データが取得できない
+    for (
+        let i = start;
+        i <= end;
+        i++
+    ) {
+
+        const frame =
+            getFrame(
+                frames,
+                i
+            );
+
+
+        if (!frame) {
+
+            continue;
+
+        }
+
+
+        // ----------------------------------------------------
+        // 左右足首の差
+        // ----------------------------------------------------
+
+        const measured =
+            calculateTakeOffDifference(
+                frame
+            );
+
+
+        if (
+            !Number.isFinite(
+                measured
+            )
+        ) {
+
+            continue;
+
+        }
+
+
+        // ----------------------------------------------------
+        // visibility確認
+        // ----------------------------------------------------
+
+        const landmarks =
+            getLandmarks(
+                frame
+            );
+
+
+        let visibility =
+            1;
+
+
+        if (
+            landmarks &&
+            landmarks[27] &&
+            landmarks[28]
+        ) {
+
+            const leftVisibility =
+                Number(
+                    landmarks[27]
+                        .visibility
+                );
+
+
+            const rightVisibility =
+                Number(
+                    landmarks[28]
+                        .visibility
+                );
+
+
+            const values =
+                [];
+
+
+            if (
+                Number.isFinite(
+                    leftVisibility
+                )
+            ) {
+
+                values.push(
+                    leftVisibility
+                );
+
+            }
+
+
+            if (
+                Number.isFinite(
+                    rightVisibility
+                )
+            ) {
+
+                values.push(
+                    rightVisibility
+                );
+
+            }
+
+
+            if (
+                values.length > 0
+            ) {
+
+                visibility =
+                    values.reduce(
+                        (a, b) =>
+                            a + b,
+                        0
+                    ) /
+                    values.length;
+
+            }
+
+        }
+
+
+        // ----------------------------------------------------
+        // visibilityが低すぎるフレームは除外
+        // ----------------------------------------------------
+
+        if (
+            visibility < 0.45
+        ) {
+
+            continue;
+
+        }
+
+
+        // ----------------------------------------------------
+        // 踏切フレームからの距離
+        // ----------------------------------------------------
+
+        const distance =
+            Math.abs(
+                i -
+                frameIndex
+            );
+
+
+        // ----------------------------------------------------
+        // 候補スコア
+        //
+        // 左右差が小さい
+        // ＋
+        // phase.jsの踏切フレームに近い
+        // ＋
+        // visibilityが高い
+        // ----------------------------------------------------
+
+        const differenceScore =
+            measured * 100;
+
+
+        const distancePenalty =
+            distance * 0.8;
+
+
+        const visibilityPenalty =
+            (
+                1 -
+                visibility
+            ) * 2;
+
+
+        const candidateScore =
+            differenceScore +
+            distancePenalty +
+            visibilityPenalty;
+
+
+        candidates.push({
+
+            frame:
+                i,
+
+            measured:
+                measured,
+
+            visibility:
+                visibility,
+
+            distance:
+                distance,
+
+            candidateScore:
+                candidateScore
+
+        });
+
+    }
+
+
+    // ========================================================
+    // 候補なし
+    // ========================================================
+
     if (
-        !Number.isFinite(measured)
+        candidates.length === 0
     ) {
 
         return {
@@ -856,23 +1065,53 @@ function calculateTakeOffScore(
                 "取得できませんでした",
 
             text:
-                "踏切の状態を確認しましょう。"
+                "踏切の状態を確認しましょう。",
+
+            threshold0:
+                "0.030より大きい",
+
+            threshold1:
+                "0.015より大きく0.030以下",
+
+            threshold2:
+                "0.015以下"
 
         };
 
     }
 
 
+    // ========================================================
+    // 一番踏切らしい候補を選択
+    // ========================================================
+
+    candidates.sort(
+        (a, b) =>
+            a.candidateScore -
+            b.candidateScore
+    );
+
+
+    const best =
+        candidates[0];
+
+
+    const measured =
+        best.measured;
+
+
+    // ========================================================
+    // 採点
+    // ========================================================
+
     let score = 0;
+
     let text = "";
 
 
-    // --------------------------------------------------------
-    // 左右足の高さ差
-    // 小さいほど同時踏切に近い
-    // --------------------------------------------------------
-
-    if (measured <= 0.015) {
+    if (
+        measured <= 0.015
+    ) {
 
         score = 2;
 
@@ -881,7 +1120,9 @@ function calculateTakeOffScore(
 
     }
 
-    else if (measured <= 0.035) {
+    else if (
+        measured <= 0.030
+    ) {
 
         score = 1;
 
@@ -900,28 +1141,84 @@ function calculateTakeOffScore(
     }
 
 
+    // ========================================================
+    // 診断ログ
+    // ========================================================
+
+    console.log(
+        "========== 踏切判定 Ver6.3.1 =========="
+    );
+
+    console.log(
+        "phase踏切フレーム:",
+        frameIndex
+    );
+
+    console.log(
+        "候補数:",
+        candidates.length
+    );
+
+    console.log(
+        "選択踏切フレーム:",
+        best.frame
+    );
+
+    console.log(
+        "踏切実測値:",
+        measured
+    );
+
+    console.log(
+        "visibility:",
+        best.visibility
+    );
+
+    console.log(
+        "踏切点:",
+        score
+    );
+
+
+    // ========================================================
+    // 結果
+    // ========================================================
+
     return {
 
-        score: score,
+        score:
+            score,
 
         value:
-            round3(measured),
+            round3(
+                measured
+            ),
 
         measured:
-            round3(measured),
+            round3(
+                measured
+            ),
 
-        text: text,
+        text:
+            text,
 
         threshold0:
-            "0.035より大きい",
+            "0.030より大きい",
 
         threshold1:
-            "0.015より大きく0.035以下",
+            "0.015より大きく0.030以下",
 
         threshold2:
-            "0.015以下"
+            "0.015以下",
+
+        selectedFrame:
+            best.frame,
+
+        candidateCount:
+            candidates.length
 
     };
+
 }
 
 
