@@ -412,23 +412,17 @@ function calculateHipScore(
             return frame;
         }
 
-        if (
-            Array.isArray(frame.landmarks)
-        ) {
+        if (Array.isArray(frame.landmarks)) {
             return frame.landmarks;
         }
 
-        if (
-            Array.isArray(frame.poseLandmarks)
-        ) {
+        if (Array.isArray(frame.poseLandmarks)) {
             return frame.poseLandmarks;
         }
 
         if (
             frame.results &&
-            Array.isArray(
-                frame.results.poseLandmarks
-            )
+            Array.isArray(frame.results.poseLandmarks)
         ) {
             return frame.results.poseLandmarks;
         }
@@ -468,23 +462,21 @@ function calculateHipScore(
                 "腰の位置を確認しましょう。",
 
             threshold0:
-                "0.20未満",
+                "0.10未満",
 
             threshold1:
-                "0.20以上0.35未満",
+                "0.10以上0.20未満",
 
             threshold2:
-                "0.35以上"
+                "0.20以上"
 
         };
-
     }
 
 
     // --------------------------------------------------------
-    // 身体サイズを計算
-    //
-    // 肩の中心 ～ 腰の中心の長さを使用
+    // 踏切時の身体サイズを取得
+    // 肩の中心～腰の中心
     // --------------------------------------------------------
 
     const takeLandmarks =
@@ -493,7 +485,7 @@ function calculateHipScore(
         );
 
 
-    let bodyScale = null;
+    let bodyScale = 0.20;
 
 
     if (
@@ -504,42 +496,28 @@ function calculateHipScore(
         takeLandmarks[24]
     ) {
 
-        const leftShoulder =
-            takeLandmarks[11];
-
-        const rightShoulder =
-            takeLandmarks[12];
-
-        const leftHip =
-            takeLandmarks[23];
-
-        const rightHip =
-            takeLandmarks[24];
-
-
         const shoulderX =
             (
-                leftShoulder.x +
-                rightShoulder.x
+                takeLandmarks[11].x +
+                takeLandmarks[12].x
             ) / 2;
 
         const shoulderY =
             (
-                leftShoulder.y +
-                rightShoulder.y
+                takeLandmarks[11].y +
+                takeLandmarks[12].y
             ) / 2;
-
 
         const hipX =
             (
-                leftHip.x +
-                rightHip.x
+                takeLandmarks[23].x +
+                takeLandmarks[24].x
             ) / 2;
 
         const hipY =
             (
-                leftHip.y +
-                rightHip.y
+                takeLandmarks[23].y +
+                takeLandmarks[24].y
             ) / 2;
 
 
@@ -572,24 +550,7 @@ function calculateHipScore(
 
 
     // --------------------------------------------------------
-    // 身体サイズが取れない場合の安全策
-    // --------------------------------------------------------
-
-    if (
-        !Number.isFinite(
-            bodyScale
-        ) ||
-        bodyScale <= 0
-    ) {
-
-        bodyScale = 0.20;
-    }
-
-
-    // --------------------------------------------------------
     // 最高点付近を複数フレーム確認
-    //
-    // highestFrame だけに依存しない
     // --------------------------------------------------------
 
     const centerIndex =
@@ -597,9 +558,7 @@ function calculateHipScore(
             0,
             Math.min(
                 frames.length - 1,
-                Number(
-                    highestFrame
-                )
+                Number(highestFrame)
             )
         );
 
@@ -645,24 +604,23 @@ function calculateHipScore(
 
 
         if (
-            !Number.isFinite(
-                hip.y
-            )
+            !Number.isFinite(hip.y)
         ) {
             continue;
         }
 
 
-        // yは小さいほど上
+        // ----------------------------------------------------
+        // 腰の上昇量
+        // ----------------------------------------------------
+
         const rawRise =
             takeHip.y -
             hip.y;
 
 
         if (
-            !Number.isFinite(
-                rawRise
-            )
+            !Number.isFinite(rawRise)
         ) {
             continue;
         }
@@ -678,9 +636,7 @@ function calculateHipScore(
 
 
         if (
-            Number.isFinite(
-                normalizedRise
-            ) &&
+            Number.isFinite(normalizedRise) &&
             normalizedRise >= 0 &&
             normalizedRise <= 3
         ) {
@@ -693,7 +649,7 @@ function calculateHipScore(
 
 
     // --------------------------------------------------------
-    // 候補が取れない場合
+    // 有効データなし
     // --------------------------------------------------------
 
     if (
@@ -713,21 +669,20 @@ function calculateHipScore(
                 "腰の位置を確認しましょう。",
 
             threshold0:
-                "0.20未満",
+                "0.10未満",
 
             threshold1:
-                "0.20以上0.35未満",
+                "0.10以上0.20未満",
 
             threshold2:
-                "0.35以上"
+                "0.20以上"
 
         };
-
     }
 
 
     // --------------------------------------------------------
-    // 小さい順に並べる
+    // 上昇量を並べ替え
     // --------------------------------------------------------
 
     riseCandidates.sort(
@@ -737,7 +692,6 @@ function calculateHipScore(
 
 
     // --------------------------------------------------------
-    // 最高値1個だけではなく、
     // 上位3フレームの平均
     // --------------------------------------------------------
 
@@ -765,13 +719,11 @@ function calculateHipScore(
 
 
     // --------------------------------------------------------
-    // 異常値確認
+    // 異常値対策
     // --------------------------------------------------------
 
     if (
-        !Number.isFinite(
-            measured
-        ) ||
+        !Number.isFinite(measured) ||
         measured < 0 ||
         measured > 3
     ) {
@@ -789,21 +741,24 @@ function calculateHipScore(
                 "腰の位置を確認しましょう。",
 
             threshold0:
-                "0.20未満",
+                "0.10未満",
 
             threshold1:
-                "0.20以上0.35未満",
+                "0.10以上0.20未満",
 
             threshold2:
-                "0.35以上"
+                "0.20以上"
 
         };
-
     }
 
 
     // --------------------------------------------------------
-    // 採点
+    // 腰の評価
+    //
+    // 0.10未満       → 0点
+    // 0.10以上0.20未満 → 1点
+    // 0.20以上       → 2点
     // --------------------------------------------------------
 
     let score = 0;
@@ -811,7 +766,7 @@ function calculateHipScore(
 
 
     if (
-        measured >= 0.35
+        measured >= 0.20
     ) {
 
         score = 2;
@@ -822,7 +777,7 @@ function calculateHipScore(
     }
 
     else if (
-        measured >= 0.20
+        measured >= 0.10
     ) {
 
         score = 1;
@@ -838,7 +793,6 @@ function calculateHipScore(
 
         text =
             "腰の位置を確認しましょう。";
-
     }
 
 
@@ -860,16 +814,17 @@ function calculateHipScore(
                 measured
             ),
 
-        text: text,
+        text:
+            text,
 
         threshold0:
-            "0.20未満",
+            "0.10未満",
 
         threshold1:
-            "0.20以上0.35未満",
+            "0.10以上0.20未満",
 
         threshold2:
-            "0.35以上"
+            "0.20以上"
 
     };
 }
