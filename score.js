@@ -441,7 +441,6 @@ function calculateHipScore(
             takeOffFrame
         );
 
-
     const takeHip =
         getHipCenter(
             takeFrame
@@ -476,7 +475,7 @@ function calculateHipScore(
 
 
     // --------------------------------------------------------
-    // 身体サイズを取得
+    // 踏切時の身体サイズを取得
     // 肩の中心～腰の中心
     // --------------------------------------------------------
 
@@ -551,64 +550,40 @@ function calculateHipScore(
 
 
     // --------------------------------------------------------
-    // 最高点を再探索
-    //
-    // highestFrameをそのまま信用せず、
-    // 踏切後の腰のy座標を調べる
-    //
-    // yが小さいほど「腰が高い」
+    // 最高点付近を複数フレーム確認
     // --------------------------------------------------------
 
-    const startIndex =
+    const centerIndex =
         Math.max(
             0,
-            Number(takeOffFrame) + 3
+            Math.min(
+                frames.length - 1,
+                Number(highestFrame)
+            )
         );
 
 
-    const phaseHighest =
-        Number(highestFrame);
-
-
-    let endIndex =
-        frames.length - 1;
-
-
-    // highestFrameが有効なら、
-    // 最高点の後ろまで十分広く探索する
-    if (
-        Number.isFinite(phaseHighest) &&
-        phaseHighest > startIndex
-    ) {
-
-        endIndex =
-            Math.min(
-                frames.length - 1,
-                Math.max(
-                    phaseHighest + 60,
-                    startIndex + 60
-                )
-            );
-    }
-
-    else {
-
-        endIndex =
-            Math.min(
-                frames.length - 1,
-                startIndex + 120
-            );
-    }
-
-
-    const candidates = [];
+    const riseCandidates = [];
 
 
     for (
-        let index = startIndex;
-        index <= endIndex;
-        index++
+        let offset = -4;
+        offset <= 4;
+        offset++
     ) {
+
+        const index =
+            centerIndex +
+            offset;
+
+
+        if (
+            index < 0 ||
+            index >= frames.length
+        ) {
+            continue;
+        }
+
 
         const frame =
             getFrame(
@@ -635,6 +610,10 @@ function calculateHipScore(
         }
 
 
+        // ----------------------------------------------------
+        // 腰の上昇量
+        // ----------------------------------------------------
+
         const rawRise =
             takeHip.y -
             hip.y;
@@ -647,13 +626,9 @@ function calculateHipScore(
         }
 
 
-        if (
-            rawRise < 0 ||
-            rawRise > 2
-        ) {
-            continue;
-        }
-
+        // ----------------------------------------------------
+        // 身体サイズで正規化
+        // ----------------------------------------------------
 
         const normalizedRise =
             rawRise /
@@ -661,40 +636,24 @@ function calculateHipScore(
 
 
         if (
-            !Number.isFinite(
-                normalizedRise
-            )
+            Number.isFinite(normalizedRise) &&
+            normalizedRise >= 0 &&
+            normalizedRise <= 3
         ) {
-            continue;
-        }
 
-
-        if (
-            normalizedRise < 0 ||
-            normalizedRise > 3
-        ) {
-            continue;
-        }
-
-
-        candidates.push({
-
-            index: index,
-
-            y: hip.y,
-
-            rise:
+            riseCandidates.push(
                 normalizedRise
-        });
+            );
+        }
     }
 
 
     // --------------------------------------------------------
-    // 候補がない場合
+    // 有効データなし
     // --------------------------------------------------------
 
     if (
-        candidates.length === 0
+        riseCandidates.length === 0
     ) {
 
         return {
@@ -723,84 +682,40 @@ function calculateHipScore(
 
 
     // --------------------------------------------------------
-    // 腰の上昇量が大きい順
+    // 上昇量を並べ替え
     // --------------------------------------------------------
 
-    candidates.sort(
+    riseCandidates.sort(
         (a, b) =>
-            b.rise -
-            a.rise
+            a - b
     );
 
 
     // --------------------------------------------------------
-    // 最大値だけではなく、
-    // 上位5フレームを使う
-    //
-    // 1フレームだけ骨格が飛んだ場合の
-    // 極端な値を避ける
+    // 上位3フレームの平均
     // --------------------------------------------------------
 
     const useCount =
         Math.min(
-            5,
-            candidates.length
+            3,
+            riseCandidates.length
         );
 
 
-    const topCandidates =
-        candidates.slice(
-            0,
+    const topValues =
+        riseCandidates.slice(
+            riseCandidates.length -
             useCount
         );
 
 
-    // --------------------------------------------------------
-    // 上位5フレームの中央値
-    //
-    // 平均ではなく中央値を使用することで
-    // 1フレームだけの誤認識に強くする
-    // --------------------------------------------------------
-
-    const values =
-        topCandidates
-            .map(
-                item =>
-                    item.rise
-            )
-            .sort(
-                (a, b) =>
-                    a - b
-            );
-
-
-    let measured;
-
-
-    if (
-        values.length % 2 === 1
-    ) {
-
-        measured =
-            values[
-                Math.floor(
-                    values.length / 2
-                )
-            ];
-
-    }
-
-    else {
-
-        const middle =
-            values.length / 2;
-
-        measured =
-            (
-                values[middle - 1] +
-                values[middle]
-            ) / 2;
-    }
+    const measured =
+        topValues.reduce(
+            (sum, value) =>
+                sum + value,
+            0
+        ) /
+        topValues.length;
 
 
     // --------------------------------------------------------
@@ -839,7 +754,7 @@ function calculateHipScore(
 
 
     // --------------------------------------------------------
-    // 採点
+    // 腰の評価
     //
     // 0.10未満       → 0点
     // 0.10以上0.20未満 → 1点
