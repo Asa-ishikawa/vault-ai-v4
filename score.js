@@ -398,33 +398,135 @@ function calculateHipScore(
     highestFrame
 ) {
 
+    // --------------------------------------------------------
+    // 踏切フレーム
+    // --------------------------------------------------------
+
     const takeFrame =
         getFrame(
             frames,
             takeOffFrame
         );
 
-    const highFrame =
-        getFrame(
-            frames,
-            highestFrame
-        );
-
-
     const takeHip =
         getHipCenter(
             takeFrame
         );
 
-    const highHip =
-        getHipCenter(
-            highFrame
+
+    if (!takeHip) {
+
+        return {
+
+            score: 0,
+
+            value: null,
+
+            measured:
+                "取得できませんでした",
+
+            text:
+                "腰の位置を確認しましょう。",
+
+            threshold0:
+                "0.20未満",
+
+            threshold1:
+                "0.20以上0.50未満",
+
+            threshold2:
+                "0.50以上"
+
+        };
+
+    }
+
+
+    // --------------------------------------------------------
+    // 最高点付近のフレームを複数確認
+    // 1フレームだけの誤検出を避ける
+    // --------------------------------------------------------
+
+    const centerIndex =
+        Math.max(
+            0,
+            Math.min(
+                frames.length - 1,
+                Number(highestFrame)
+            )
         );
 
 
+    const candidates = [];
+
+
+    for (
+        let offset = -4;
+        offset <= 4;
+        offset++
+    ) {
+
+        const index =
+            centerIndex + offset;
+
+
+        if (
+            index < 0 ||
+            index >= frames.length
+        ) {
+            continue;
+        }
+
+
+        const frame =
+            getFrame(
+                frames,
+                index
+            );
+
+
+        const hip =
+            getHipCenter(
+                frame
+            );
+
+
+        if (!hip) {
+            continue;
+        }
+
+
+        // 座標の異常値を除外
+        if (
+            !Number.isFinite(hip.y) ||
+            hip.y < -2 ||
+            hip.y > 2
+        ) {
+            continue;
+        }
+
+
+        candidates.push({
+
+            index: index,
+
+            y: hip.y,
+
+            rise:
+                takeHip.y -
+                hip.y
+
+        });
+
+    }
+
+
+    // --------------------------------------------------------
+    // 有効なデータがない場合
+    // --------------------------------------------------------
+
     if (
-        !takeHip ||
-        !highHip
+        candidates.length === 0
     ) {
 
         return {
@@ -440,13 +542,13 @@ function calculateHipScore(
                 "腰の位置を確認しましょう。",
 
             threshold0:
-                "取得できない場合",
+                "0.20未満",
 
             threshold1:
-                "暫定判定",
+                "0.20以上0.50未満",
 
             threshold2:
-                "暫定判定"
+                "0.50以上"
 
         };
 
@@ -454,19 +556,94 @@ function calculateHipScore(
 
 
     // --------------------------------------------------------
-    // y座標は小さいほど上
+    // 腰の上昇量を昇順に並べる
     // --------------------------------------------------------
 
-    const rise =
-        takeHip.y -
-        highHip.y;
+    const rises =
+        candidates
+            .map(
+                item =>
+                    Math.max(
+                        0,
+                        item.rise
+                    )
+            )
+            .filter(
+                value =>
+                    Number.isFinite(value)
+            )
+            .sort(
+                (a, b) =>
+                    a - b
+            );
 
 
+    if (
+        rises.length === 0
+    ) {
+
+        return {
+
+            score: 0,
+
+            value: null,
+
+            measured:
+                "取得できませんでした",
+
+            text:
+                "腰の位置を確認しましょう。",
+
+            threshold0:
+                "0.20未満",
+
+            threshold1:
+                "0.20以上0.50未満",
+
+            threshold2:
+                "0.50以上"
+
+        };
+
+    }
+
+
+    // --------------------------------------------------------
+    // 最高値1つだけではなく、
+    // 上位3つの平均を使用
+    // --------------------------------------------------------
+
+    const topCount =
+        Math.min(
+            3,
+            rises.length
+        );
+
+
+    const topValues =
+        rises.slice(
+            rises.length - topCount
+        );
+
+
+    const averageRise =
+        topValues.reduce(
+            (sum, value) =>
+                sum + value,
+            0
+        ) / topValues.length;
+
+
+    // --------------------------------------------------------
     // 異常値対策
+    // --------------------------------------------------------
+
     if (
-        !Number.isFinite(rise) ||
-        rise < -2 ||
-        rise > 2
+        !Number.isFinite(
+            averageRise
+        ) ||
+        averageRise < 0 ||
+        averageRise > 2
     ) {
 
         return {
@@ -482,13 +659,13 @@ function calculateHipScore(
                 "腰の位置を確認しましょう。",
 
             threshold0:
-                "取得できない場合",
+                "0.20未満",
 
             threshold1:
-                "暫定判定",
+                "0.20以上0.50未満",
 
             threshold2:
-                "暫定判定"
+                "0.50以上"
 
         };
 
@@ -496,13 +673,13 @@ function calculateHipScore(
 
 
     // --------------------------------------------------------
-    // 0～1付近の値として扱う
+    // 実測値
     // --------------------------------------------------------
 
     const measured =
         Math.max(
             0,
-            rise
+            averageRise
         );
 
 
@@ -510,8 +687,13 @@ function calculateHipScore(
     let text = "";
 
 
-    // 現段階ではかなり慎重に判定
-    if (measured >= 0.50) {
+    // --------------------------------------------------------
+    // 腰の評価
+    // --------------------------------------------------------
+
+    if (
+        measured >= 0.50
+    ) {
 
         score = 2;
 
@@ -520,7 +702,9 @@ function calculateHipScore(
 
     }
 
-    else if (measured >= 0.20) {
+    else if (
+        measured >= 0.20
+    ) {
 
         score = 1;
 
@@ -539,15 +723,23 @@ function calculateHipScore(
     }
 
 
+    // --------------------------------------------------------
+    // 結果
+    // --------------------------------------------------------
+
     return {
 
         score: score,
 
         value:
-            round3(measured),
+            round3(
+                measured
+            ),
 
         measured:
-            round3(measured),
+            round3(
+                measured
+            ),
 
         text: text,
 
