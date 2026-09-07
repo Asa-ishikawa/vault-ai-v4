@@ -399,6 +399,45 @@ function calculateHipScore(
 ) {
 
     // --------------------------------------------------------
+    // フレームからランドマーク配列を取得
+    // --------------------------------------------------------
+
+    function getLandmarks(frame) {
+
+        if (!frame) {
+            return null;
+        }
+
+        if (Array.isArray(frame)) {
+            return frame;
+        }
+
+        if (
+            Array.isArray(frame.landmarks)
+        ) {
+            return frame.landmarks;
+        }
+
+        if (
+            Array.isArray(frame.poseLandmarks)
+        ) {
+            return frame.poseLandmarks;
+        }
+
+        if (
+            frame.results &&
+            Array.isArray(
+                frame.results.poseLandmarks
+            )
+        ) {
+            return frame.results.poseLandmarks;
+        }
+
+        return null;
+    }
+
+
+    // --------------------------------------------------------
     // 踏切フレーム
     // --------------------------------------------------------
 
@@ -432,10 +471,10 @@ function calculateHipScore(
                 "0.20未満",
 
             threshold1:
-                "0.20以上0.50未満",
+                "0.20以上0.35未満",
 
             threshold2:
-                "0.50以上"
+                "0.35以上"
 
         };
 
@@ -443,8 +482,114 @@ function calculateHipScore(
 
 
     // --------------------------------------------------------
-    // 最高点付近のフレームを複数確認
-    // 1フレームだけの誤検出を避ける
+    // 身体サイズを計算
+    //
+    // 肩の中心 ～ 腰の中心の長さを使用
+    // --------------------------------------------------------
+
+    const takeLandmarks =
+        getLandmarks(
+            takeFrame
+        );
+
+
+    let bodyScale = null;
+
+
+    if (
+        takeLandmarks &&
+        takeLandmarks[11] &&
+        takeLandmarks[12] &&
+        takeLandmarks[23] &&
+        takeLandmarks[24]
+    ) {
+
+        const leftShoulder =
+            takeLandmarks[11];
+
+        const rightShoulder =
+            takeLandmarks[12];
+
+        const leftHip =
+            takeLandmarks[23];
+
+        const rightHip =
+            takeLandmarks[24];
+
+
+        const shoulderX =
+            (
+                leftShoulder.x +
+                rightShoulder.x
+            ) / 2;
+
+        const shoulderY =
+            (
+                leftShoulder.y +
+                rightShoulder.y
+            ) / 2;
+
+
+        const hipX =
+            (
+                leftHip.x +
+                rightHip.x
+            ) / 2;
+
+        const hipY =
+            (
+                leftHip.y +
+                rightHip.y
+            ) / 2;
+
+
+        const dx =
+            hipX -
+            shoulderX;
+
+        const dy =
+            hipY -
+            shoulderY;
+
+
+        const scale =
+            Math.sqrt(
+                dx * dx +
+                dy * dy
+            );
+
+
+        if (
+            Number.isFinite(scale) &&
+            scale > 0.03 &&
+            scale < 1
+        ) {
+
+            bodyScale =
+                scale;
+        }
+    }
+
+
+    // --------------------------------------------------------
+    // 身体サイズが取れない場合の安全策
+    // --------------------------------------------------------
+
+    if (
+        !Number.isFinite(
+            bodyScale
+        ) ||
+        bodyScale <= 0
+    ) {
+
+        bodyScale = 0.20;
+    }
+
+
+    // --------------------------------------------------------
+    // 最高点付近を複数フレーム確認
+    //
+    // highestFrame だけに依存しない
     // --------------------------------------------------------
 
     const centerIndex =
@@ -452,12 +597,14 @@ function calculateHipScore(
             0,
             Math.min(
                 frames.length - 1,
-                Number(highestFrame)
+                Number(
+                    highestFrame
+                )
             )
         );
 
 
-    const candidates = [];
+    const riseCandidates = [];
 
 
     for (
@@ -467,7 +614,8 @@ function calculateHipScore(
     ) {
 
         const index =
-            centerIndex + offset;
+            centerIndex +
+            offset;
 
 
         if (
@@ -496,37 +644,60 @@ function calculateHipScore(
         }
 
 
-        // 座標の異常値を除外
         if (
-            !Number.isFinite(hip.y) ||
-            hip.y < -2 ||
-            hip.y > 2
+            !Number.isFinite(
+                hip.y
+            )
         ) {
             continue;
         }
 
 
-        candidates.push({
+        // yは小さいほど上
+        const rawRise =
+            takeHip.y -
+            hip.y;
 
-            index: index,
 
-            y: hip.y,
+        if (
+            !Number.isFinite(
+                rawRise
+            )
+        ) {
+            continue;
+        }
 
-            rise:
-                takeHip.y -
-                hip.y
 
-        });
+        // ----------------------------------------------------
+        // 身体サイズで正規化
+        // ----------------------------------------------------
 
+        const normalizedRise =
+            rawRise /
+            bodyScale;
+
+
+        if (
+            Number.isFinite(
+                normalizedRise
+            ) &&
+            normalizedRise >= 0 &&
+            normalizedRise <= 3
+        ) {
+
+            riseCandidates.push(
+                normalizedRise
+            );
+        }
     }
 
 
     // --------------------------------------------------------
-    // 有効なデータがない場合
+    // 候補が取れない場合
     // --------------------------------------------------------
 
     if (
-        candidates.length === 0
+        riseCandidates.length === 0
     ) {
 
         return {
@@ -545,14 +716,163 @@ function calculateHipScore(
                 "0.20未満",
 
             threshold1:
-                "0.20以上0.50未満",
+                "0.20以上0.35未満",
 
             threshold2:
-                "0.50以上"
+                "0.35以上"
 
         };
 
     }
+
+
+    // --------------------------------------------------------
+    // 小さい順に並べる
+    // --------------------------------------------------------
+
+    riseCandidates.sort(
+        (a, b) =>
+            a - b
+    );
+
+
+    // --------------------------------------------------------
+    // 最高値1個だけではなく、
+    // 上位3フレームの平均
+    // --------------------------------------------------------
+
+    const useCount =
+        Math.min(
+            3,
+            riseCandidates.length
+        );
+
+
+    const topValues =
+        riseCandidates.slice(
+            riseCandidates.length -
+            useCount
+        );
+
+
+    const measured =
+        topValues.reduce(
+            (sum, value) =>
+                sum + value,
+            0
+        ) /
+        topValues.length;
+
+
+    // --------------------------------------------------------
+    // 異常値確認
+    // --------------------------------------------------------
+
+    if (
+        !Number.isFinite(
+            measured
+        ) ||
+        measured < 0 ||
+        measured > 3
+    ) {
+
+        return {
+
+            score: 0,
+
+            value: null,
+
+            measured:
+                "取得できませんでした",
+
+            text:
+                "腰の位置を確認しましょう。",
+
+            threshold0:
+                "0.20未満",
+
+            threshold1:
+                "0.20以上0.35未満",
+
+            threshold2:
+                "0.35以上"
+
+        };
+
+    }
+
+
+    // --------------------------------------------------------
+    // 採点
+    // --------------------------------------------------------
+
+    let score = 0;
+    let text = "";
+
+
+    if (
+        measured >= 0.35
+    ) {
+
+        score = 2;
+
+        text =
+            "跳び越す動作で腰が十分に上がっています。";
+
+    }
+
+    else if (
+        measured >= 0.20
+    ) {
+
+        score = 1;
+
+        text =
+            "腰は上がっています。さらに腰を高く保つことを意識しましょう。";
+
+    }
+
+    else {
+
+        score = 0;
+
+        text =
+            "腰の位置を確認しましょう。";
+
+    }
+
+
+    // --------------------------------------------------------
+    // 結果
+    // --------------------------------------------------------
+
+    return {
+
+        score: score,
+
+        value:
+            round3(
+                measured
+            ),
+
+        measured:
+            round3(
+                measured
+            ),
+
+        text: text,
+
+        threshold0:
+            "0.20未満",
+
+        threshold1:
+            "0.20以上0.35未満",
+
+        threshold2:
+            "0.35以上"
+
+    };
+}
 
 
     // --------------------------------------------------------
