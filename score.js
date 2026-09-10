@@ -848,39 +848,82 @@ function calculateHipScore(
 // があれば利用する。
 // ============================================================
 
+// ============================================================
+// ③ 着手位置
+//
+// 着手判定 Ver6.4
+//
+// 改良内容
+// ・phase.jsが選んだ着手フレームを基準にする
+// ・その前後の候補フレームも比較する
+// ・最も「着手らしい」候補を採用する
+// ・1フレームだけの誤判定に引っ張られにくくする
+// ・candidateCount / selectedFrame / likelihood は維持
+// ・他4項目の採点ロジックは変更しない
+// ============================================================
+
 function calculateHandScore(
     frames,
     phase,
     handFrame
 ) {
 
-    const frame =
-        getFrame(
-            frames,
-            handFrame
-        );
+    // --------------------------------------------------------
+    // 基本チェック
+    // --------------------------------------------------------
+
+    if (
+        !Array.isArray(frames) ||
+        frames.length === 0
+    ) {
+
+        return {
+            score: 0,
+            value: null,
+            measured: "取得できませんでした",
+            text: "着手位置を確認しましょう。",
+            candidateCount: 0,
+            selectedFrame: handFrame,
+            likelihood: null
+        };
+
+    }
 
 
-    const measured =
-        getHandMeasuredValue(
-            frame
-        );
+    // --------------------------------------------------------
+    // phase.jsの着手候補情報を取得
+    // --------------------------------------------------------
 
-
-    // phase.js の着手候補情報
     const candidates =
-        getHandCandidates(
-            phase
-        );
-
+        getHandCandidates(phase);
 
     const candidateCount =
         candidates.length;
 
 
-    // 選択された候補
-    let selectedCandidate = null;
+    // --------------------------------------------------------
+    // phase.jsが選んだフレーム
+    // --------------------------------------------------------
 
+    const baseFrame =
+        Number.isFinite(Number(handFrame))
+            ? Math.round(Number(handFrame))
+            : Math.floor(frames.length * 0.4);
+
+
+    // --------------------------------------------------------
+    // 着手候補を作る
+    //
+    // phase.jsの候補を優先する。
+    // そのうえで、選択フレームの前後2フレームも確認する。
+    // --------------------------------------------------------
+
+    const handCandidates = [];
+
+
+    // --------------------------------------------------------
+    // ① phase.jsが持っている候補
+    // --------------------------------------------------------
 
     for (
         let i = 0;
@@ -888,58 +931,403 @@ function calculateHandScore(
         i++
     ) {
 
-        const c =
+        const candidate =
             candidates[i];
 
-
         const frameNumber =
-            getCandidateFrame(
-                c
+            getCandidateFrame(candidate);
+
+        const likelihood =
+            getCandidateLikelihood(candidate);
+
+        if (
+            !Number.isFinite(frameNumber)
+        ) {
+            continue;
+        }
+
+        if (
+            frameNumber < 0 ||
+            frameNumber >= frames.length
+        ) {
+            continue;
+        }
+
+        handCandidates.push({
+
+            frame:
+                Math.round(frameNumber),
+
+            likelihood:
+                Number.isFinite(likelihood)
+                    ? likelihood
+                    : NaN,
+
+            source:
+                "phase"
+
+        });
+
+    }
+
+
+    // --------------------------------------------------------
+    // ② 選択された着手フレーム
+    // --------------------------------------------------------
+
+    if (
+        baseFrame >= 0 &&
+        baseFrame < frames.length
+    ) {
+
+        handCandidates.push({
+
+            frame:
+                baseFrame,
+
+            likelihood:
+                NaN,
+
+            source:
+                "selected"
+
+        });
+
+    }
+
+
+    // --------------------------------------------------------
+    // ③ 選択フレーム前後を確認
+    //
+    // 着手の瞬間は1フレームだけでは
+    // 少しズレることがあるため、
+    // 前後2フレームを見る。
+    // --------------------------------------------------------
+
+    for (
+        let offset = -2;
+        offset <= 2;
+        offset++
+    ) {
+
+        const index =
+            baseFrame + offset;
+
+        if (
+            index < 0 ||
+            index >= frames.length
+        ) {
+            continue;
+        }
+
+        handCandidates.push({
+
+            frame:
+                index,
+
+            likelihood:
+                NaN,
+
+            source:
+                "nearby"
+
+        });
+
+    }
+
+
+    // --------------------------------------------------------
+    // 重複フレームを整理
+    // --------------------------------------------------------
+
+    const uniqueCandidates =
+        new Map();
+
+
+    for (
+        let i = 0;
+        i < handCandidates.length;
+        i++
+    ) {
+
+        const candidate =
+            handCandidates[i];
+
+        const existing =
+            uniqueCandidates.get(
+                candidate.frame
             );
 
 
+        if (!existing) {
+
+            uniqueCandidates.set(
+                candidate.frame,
+                candidate
+            );
+
+            continue;
+
+        }
+
+
+        // likelihoodがある候補を優先
         if (
-            frameNumber ===
-            handFrame
+            !Number.isFinite(
+                existing.likelihood
+            ) &&
+            Number.isFinite(
+                candidate.likelihood
+            )
         ) {
 
-            selectedCandidate =
-                c;
-
-            break;
+            uniqueCandidates.set(
+                candidate.frame,
+                candidate
+            );
 
         }
 
     }
 
 
-    // 着手らしさ
-    let likelihood =
-        getCandidateLikelihood(
-            selectedCandidate
+    const uniqueList =
+        Array.from(
+            uniqueCandidates.values()
         );
 
 
-    // phaseに直接保存されている場合
-    if (
-        !Number.isFinite(likelihood) &&
-        Number.isFinite(
-            Number(
-                phase.handLikelihood
-            )
-        )
+    // --------------------------------------------------------
+    // phase.jsの候補を基準に
+    // 「着手らしさ」を再評価
+    // --------------------------------------------------------
+
+    let selectedCandidate = null;
+
+    let selectedLikelihood = -Infinity;
+
+    let selectedMeasured = NaN;
+
+    let selectedDistance = Infinity;
+
+
+    for (
+        let i = 0;
+        i < uniqueList.length;
+        i++
     ) {
 
-        likelihood =
-            Number(
-                phase.handLikelihood
+        const candidate =
+            uniqueList[i];
+
+        const frame =
+            getFrame(
+                frames,
+                candidate.frame
             );
+
+
+        if (!frame) {
+            continue;
+        }
+
+
+        const measured =
+            getHandMeasuredValue(
+                frame
+            );
+
+
+        if (
+            !Number.isFinite(measured)
+        ) {
+            continue;
+        }
+
+
+        // ----------------------------------------------------
+        // phase.jsのlikelihood
+        // ----------------------------------------------------
+
+        let likelihood =
+            candidate.likelihood;
+
+
+        // phase候補に無い場合、
+        // 選択された候補と近いほど少し優先
+        if (
+            !Number.isFinite(likelihood)
+        ) {
+
+            const distance =
+                Math.abs(
+                    candidate.frame -
+                    baseFrame
+                );
+
+            likelihood =
+                5 -
+                distance * 0.5;
+
+        }
+
+
+        // ----------------------------------------------------
+        // 着手位置として極端すぎる値を除外
+        //
+        // 現在の実測値の基準
+        // 0.05～0.30付近を中心に扱う
+        // ----------------------------------------------------
+
+        if (
+            measured < 0 ||
+            measured > 1.5
+        ) {
+
+            continue;
+
+        }
+
+
+        // ----------------------------------------------------
+        // 候補評価
+        //
+        // likelihoodを最優先
+        // 同程度ならphase選択フレームに近いもの
+        // ----------------------------------------------------
+
+        const distance =
+            Math.abs(
+                candidate.frame -
+                baseFrame
+            );
+
+
+        const candidateScore =
+            likelihood -
+            distance * 0.25;
+
+
+        const currentScore =
+            selectedCandidate
+                ? selectedLikelihood -
+                  selectedDistance * 0.25
+                : -Infinity;
+
+
+        if (
+            candidateScore >
+            currentScore
+        ) {
+
+            selectedCandidate =
+                candidate;
+
+            selectedLikelihood =
+                likelihood;
+
+            selectedMeasured =
+                measured;
+
+            selectedDistance =
+                distance;
+
+        }
 
     }
 
 
     // --------------------------------------------------------
-    // 実測値が取れない場合
+    // 候補が見つからない場合
+    // --------------------------------------------------------
+
+    if (
+        !selectedCandidate
+    ) {
+
+        const fallbackFrame =
+            Math.max(
+                0,
+                Math.min(
+                    frames.length - 1,
+                    baseFrame
+                )
+            );
+
+
+        const fallback =
+            getFrame(
+                frames,
+                fallbackFrame
+            );
+
+
+        const fallbackMeasured =
+            getHandMeasuredValue(
+                fallback
+            );
+
+
+        if (
+            !Number.isFinite(
+                fallbackMeasured
+            )
+        ) {
+
+            return {
+
+                score: 0,
+
+                value: null,
+
+                measured:
+                    "取得できませんでした",
+
+                text:
+                    "着手位置を確認しましょう。",
+
+                candidateCount:
+                    candidateCount,
+
+                selectedFrame:
+                    fallbackFrame,
+
+                likelihood:
+                    null
+
+            };
+
+        }
+
+
+        selectedCandidate = {
+
+            frame:
+                fallbackFrame
+
+        };
+
+        selectedMeasured =
+            fallbackMeasured;
+
+        selectedLikelihood =
+            NaN;
+
+    }
+
+
+    // --------------------------------------------------------
+    // 最終的な実測値
+    // --------------------------------------------------------
+
+    const measured =
+        Number(
+            selectedMeasured
+        );
+
+
+    // --------------------------------------------------------
+    // 異常値対策
     // --------------------------------------------------------
 
     if (
@@ -962,11 +1350,13 @@ function calculateHandScore(
                 candidateCount,
 
             selectedFrame:
-                handFrame,
+                selectedCandidate.frame,
 
             likelihood:
-                Number.isFinite(likelihood)
-                    ? likelihood
+                Number.isFinite(
+                    selectedLikelihood
+                )
+                    ? selectedLikelihood
                     : null
 
         };
@@ -975,21 +1365,29 @@ function calculateHandScore(
 
 
     // --------------------------------------------------------
-    // 着手位置判定
+    // 着手判定
     //
-    // 現段階では実測値だけで強く決めない。
-    // phase.jsの「着手らしさ」を優先する。
+    // phase.jsのlikelihoodを優先する。
+    //
+    // 9以上 → 2点
+    // 6以上 → 1点
+    // 6未満 → 0点
+    //
+    // likelihoodが取れない場合だけ
+    // 実測値で暫定判定する。
     // --------------------------------------------------------
 
     let score = 0;
 
 
     if (
-        Number.isFinite(likelihood)
+        Number.isFinite(
+            selectedLikelihood
+        )
     ) {
 
         if (
-            likelihood >= 9
+            selectedLikelihood >= 9
         ) {
 
             score = 2;
@@ -997,7 +1395,7 @@ function calculateHandScore(
         }
 
         else if (
-            likelihood >= 6
+            selectedLikelihood >= 6
         ) {
 
             score = 1;
@@ -1013,8 +1411,6 @@ function calculateHandScore(
     }
 
     else {
-
-        // 着手らしさがない場合の暫定判定
 
         if (
             measured >= 0.05 &&
@@ -1034,17 +1430,25 @@ function calculateHandScore(
     }
 
 
+    // --------------------------------------------------------
+    // コメント
+    // --------------------------------------------------------
+
     let text = "";
 
 
-    if (score === 2) {
+    if (
+        score === 2
+    ) {
 
         text =
             "着手タイミング・着手位置が安定しています。";
 
     }
 
-    else if (score === 1) {
+    else if (
+        score === 1
+    ) {
 
         text =
             "着手位置を確認しましょう。手をつく位置を安定させると、さらによくなります。";
@@ -1059,32 +1463,92 @@ function calculateHandScore(
     }
 
 
+    // --------------------------------------------------------
+    // デバッグ情報
+    // --------------------------------------------------------
+
+    console.log(
+        "========== 着手判定 Ver6.4 =========="
+    );
+
+    console.log(
+        "phase着手フレーム:",
+        baseFrame
+    );
+
+    console.log(
+        "着手候補数:",
+        candidateCount
+    );
+
+    console.log(
+        "確認した候補フレーム数:",
+        uniqueList.length
+    );
+
+    console.log(
+        "選択着手フレーム:",
+        selectedCandidate.frame
+    );
+
+    console.log(
+        "着手実測値:",
+        measured
+    );
+
+    console.log(
+        "着手らしさ:",
+        Number.isFinite(
+            selectedLikelihood
+        )
+            ? selectedLikelihood
+            : null
+    );
+
+    console.log(
+        "着手点:",
+        score
+    );
+
+
+    // --------------------------------------------------------
+    // 結果
+    // --------------------------------------------------------
+
     return {
 
-        score: score,
+        score:
+            score,
 
         value:
-            round3(measured),
+            round3(
+                measured
+            ),
 
         measured:
-            round3(measured),
+            round3(
+                measured
+            ),
 
-        text: text,
+        text:
+            text,
 
         candidateCount:
             candidateCount,
 
         selectedFrame:
-            handFrame,
+            selectedCandidate.frame,
 
         likelihood:
-            Number.isFinite(likelihood)
-                ? likelihood
+            Number.isFinite(
+                selectedLikelihood
+            )
+                ? selectedLikelihood
                 : null
 
     };
-}
 
+}
 
 // ============================================================
 // ④ 両足踏切
