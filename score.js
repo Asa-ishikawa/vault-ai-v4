@@ -862,6 +862,23 @@ function calculateHipScore(
 // ・他4項目の採点ロジックは変更しない
 // ============================================================
 
+// ============================================================
+// ③ 着手位置
+//
+// 着手判定 Ver6.5
+//
+// 改良内容
+// ・phase.jsの着手候補を使用
+// ・候補フレームの「連続性」を評価
+// ・1フレームだけの孤立候補を弱くする
+// ・連続した候補グループを作る
+// ・最も着手動作らしい連続グループを選択
+// ・グループ中央付近を着手フレームとして採用
+// ・実測値は採用フレームから取得
+// ・candidateCount / selectedFrame / likelihood を維持
+// ・他4項目の採点ロジックは変更しない
+// ============================================================
+
 function calculateHandScore(
     frames,
     phase,
@@ -869,7 +886,7 @@ function calculateHandScore(
 ) {
 
     // --------------------------------------------------------
-    // 基本チェック
+    // フレームが取得できない場合
     // --------------------------------------------------------
 
     if (
@@ -878,20 +895,31 @@ function calculateHandScore(
     ) {
 
         return {
+
             score: 0,
+
             value: null,
-            measured: "取得できませんでした",
-            text: "着手位置を確認しましょう。",
+
+            measured:
+                "取得できませんでした",
+
+            text:
+                "着手位置を確認しましょう。",
+
             candidateCount: 0,
-            selectedFrame: handFrame,
+
+            selectedFrame:
+                handFrame,
+
             likelihood: null
+
         };
 
     }
 
 
     // --------------------------------------------------------
-    // phase.jsの着手候補情報を取得
+    // phase.jsから着手候補を取得
     // --------------------------------------------------------
 
     const candidates =
@@ -902,28 +930,28 @@ function calculateHandScore(
 
 
     // --------------------------------------------------------
-    // phase.jsが選んだフレーム
+    // phase.jsが選択した着手フレーム
     // --------------------------------------------------------
 
     const baseFrame =
-        Number.isFinite(Number(handFrame))
-            ? Math.round(Number(handFrame))
-            : Math.floor(frames.length * 0.4);
+        Number.isFinite(
+            Number(handFrame)
+        )
+            ? Math.round(
+                Number(handFrame)
+            )
+            : Math.floor(
+                frames.length * 0.4
+            );
 
 
     // --------------------------------------------------------
-    // 着手候補を作る
-    //
-    // phase.jsの候補を優先する。
-    // そのうえで、選択フレームの前後2フレームも確認する。
+    // 候補を整理
     // --------------------------------------------------------
 
-    const handCandidates = [];
+    const candidateMap =
+        new Map();
 
-
-    // --------------------------------------------------------
-    // ① phase.jsが持っている候補
-    // --------------------------------------------------------
 
     for (
         let i = 0;
@@ -935,302 +963,102 @@ function calculateHandScore(
             candidates[i];
 
         const frameNumber =
-            getCandidateFrame(candidate);
-
-        const likelihood =
-            getCandidateLikelihood(candidate);
-
-        if (
-            !Number.isFinite(frameNumber)
-        ) {
-            continue;
-        }
-
-        if (
-            frameNumber < 0 ||
-            frameNumber >= frames.length
-        ) {
-            continue;
-        }
-
-        handCandidates.push({
-
-            frame:
-                Math.round(frameNumber),
-
-            likelihood:
-                Number.isFinite(likelihood)
-                    ? likelihood
-                    : NaN,
-
-            source:
-                "phase"
-
-        });
-
-    }
-
-
-    // --------------------------------------------------------
-    // ② 選択された着手フレーム
-    // --------------------------------------------------------
-
-    if (
-        baseFrame >= 0 &&
-        baseFrame < frames.length
-    ) {
-
-        handCandidates.push({
-
-            frame:
-                baseFrame,
-
-            likelihood:
-                NaN,
-
-            source:
-                "selected"
-
-        });
-
-    }
-
-
-    // --------------------------------------------------------
-    // ③ 選択フレーム前後を確認
-    //
-    // 着手の瞬間は1フレームだけでは
-    // 少しズレることがあるため、
-    // 前後2フレームを見る。
-    // --------------------------------------------------------
-
-    for (
-        let offset = -2;
-        offset <= 2;
-        offset++
-    ) {
-
-        const index =
-            baseFrame + offset;
-
-        if (
-            index < 0 ||
-            index >= frames.length
-        ) {
-            continue;
-        }
-
-        handCandidates.push({
-
-            frame:
-                index,
-
-            likelihood:
-                NaN,
-
-            source:
-                "nearby"
-
-        });
-
-    }
-
-
-    // --------------------------------------------------------
-    // 重複フレームを整理
-    // --------------------------------------------------------
-
-    const uniqueCandidates =
-        new Map();
-
-
-    for (
-        let i = 0;
-        i < handCandidates.length;
-        i++
-    ) {
-
-        const candidate =
-            handCandidates[i];
-
-        const existing =
-            uniqueCandidates.get(
-                candidate.frame
-            );
-
-
-        if (!existing) {
-
-            uniqueCandidates.set(
-                candidate.frame,
+            getCandidateFrame(
                 candidate
             );
 
-            continue;
+        const likelihood =
+            getCandidateLikelihood(
+                candidate
+            );
 
-        }
 
-
-        // likelihoodがある候補を優先
         if (
             !Number.isFinite(
-                existing.likelihood
-            ) &&
-            Number.isFinite(
-                candidate.likelihood
+                frameNumber
             )
         ) {
 
-            uniqueCandidates.set(
-                candidate.frame,
-                candidate
-            );
+            continue;
 
         }
 
-    }
-
-
-    const uniqueList =
-        Array.from(
-            uniqueCandidates.values()
-        );
-
-
-    // --------------------------------------------------------
-    // phase.jsの候補を基準に
-    // 「着手らしさ」を再評価
-    // --------------------------------------------------------
-
-    let selectedCandidate = null;
-
-    let selectedLikelihood = -Infinity;
-
-    let selectedMeasured = NaN;
-
-    let selectedDistance = Infinity;
-
-
-    for (
-        let i = 0;
-        i < uniqueList.length;
-        i++
-    ) {
-
-        const candidate =
-            uniqueList[i];
 
         const frame =
-            getFrame(
-                frames,
-                candidate.frame
+            Math.round(
+                frameNumber
             );
 
 
-        if (!frame) {
+        if (
+            frame < 0 ||
+            frame >= frames.length
+        ) {
+
             continue;
+
         }
 
 
-        const measured =
-            getHandMeasuredValue(
+        const existing =
+            candidateMap.get(
                 frame
             );
 
 
+        // 同じフレームが複数ある場合、
+        // likelihoodが高い方を残す
         if (
-            !Number.isFinite(measured)
-        ) {
-            continue;
-        }
-
-
-        // ----------------------------------------------------
-        // phase.jsのlikelihood
-        // ----------------------------------------------------
-
-        let likelihood =
-            candidate.likelihood;
-
-
-        // phase候補に無い場合、
-        // 選択された候補と近いほど少し優先
-        if (
-            !Number.isFinite(likelihood)
+            !existing
         ) {
 
-            const distance =
-                Math.abs(
-                    candidate.frame -
-                    baseFrame
-                );
+            candidateMap.set(
+                frame,
+                {
 
-            likelihood =
-                5 -
-                distance * 0.5;
+                    frame:
+                        frame,
 
-        }
+                    likelihood:
+                        Number.isFinite(
+                            likelihood
+                        )
+                            ? likelihood
+                            : NaN
 
+                }
 
-        // ----------------------------------------------------
-        // 着手位置として極端すぎる値を除外
-        //
-        // 現在の実測値の基準
-        // 0.05～0.30付近を中心に扱う
-        // ----------------------------------------------------
-
-        if (
-            measured < 0 ||
-            measured > 1.5
-        ) {
-
-            continue;
-
-        }
-
-
-        // ----------------------------------------------------
-        // 候補評価
-        //
-        // likelihoodを最優先
-        // 同程度ならphase選択フレームに近いもの
-        // ----------------------------------------------------
-
-        const distance =
-            Math.abs(
-                candidate.frame -
-                baseFrame
             );
 
+        }
 
-        const candidateScore =
-            likelihood -
-            distance * 0.25;
-
-
-        const currentScore =
-            selectedCandidate
-                ? selectedLikelihood -
-                  selectedDistance * 0.25
-                : -Infinity;
-
-
-        if (
-            candidateScore >
-            currentScore
+        else if (
+            !Number.isFinite(
+                existing.likelihood
+            ) &&
+            Number.isFinite(
+                likelihood
+            )
         ) {
 
-            selectedCandidate =
-                candidate;
-
-            selectedLikelihood =
+            existing.likelihood =
                 likelihood;
 
-            selectedMeasured =
-                measured;
+        }
 
-            selectedDistance =
-                distance;
+        else if (
+            Number.isFinite(
+                likelihood
+            ) &&
+            Number.isFinite(
+                existing.likelihood
+            ) &&
+            likelihood >
+            existing.likelihood
+        ) {
+
+            existing.likelihood =
+                likelihood;
 
         }
 
@@ -1238,11 +1066,31 @@ function calculateHandScore(
 
 
     // --------------------------------------------------------
-    // 候補が見つからない場合
+    // 候補フレームを昇順に並べる
+    // --------------------------------------------------------
+
+    const candidateList =
+        Array.from(
+            candidateMap.values()
+        )
+        .sort(
+            function(a, b) {
+
+                return (
+                    a.frame -
+                    b.frame
+                );
+
+            }
+        );
+
+
+    // --------------------------------------------------------
+    // 候補がない場合
     // --------------------------------------------------------
 
     if (
-        !selectedCandidate
+        candidateList.length === 0
     ) {
 
         const fallbackFrame =
@@ -1300,38 +1148,612 @@ function calculateHandScore(
         }
 
 
-        selectedCandidate = {
+        return {
 
-            frame:
-                fallbackFrame
+            score: 0,
+
+            value:
+                round3(
+                    fallbackMeasured
+                ),
+
+            measured:
+                round3(
+                    fallbackMeasured
+                ),
+
+            text:
+                "着手位置を確認しましょう。",
+
+            candidateCount:
+                candidateCount,
+
+            selectedFrame:
+                fallbackFrame,
+
+            likelihood:
+                null
 
         };
-
-        selectedMeasured =
-            fallbackMeasured;
-
-        selectedLikelihood =
-            NaN;
 
     }
 
 
     // --------------------------------------------------------
-    // 最終的な実測値
+    // 連続候補グループを作る
+    //
+    // 例
+    //
+    // 10,11,12,13,14
+    //
+    // → 1つの連続グループ
+    //
+    // 20,21
+    //
+    // → 別のグループ
+    //
     // --------------------------------------------------------
 
-    const measured =
-        Number(
-            selectedMeasured
+    const groups = [];
+
+    let currentGroup = [];
+
+
+    for (
+        let i = 0;
+        i < candidateList.length;
+        i++
+    ) {
+
+        const candidate =
+            candidateList[i];
+
+
+        if (
+            currentGroup.length === 0
+        ) {
+
+            currentGroup.push(
+                candidate
+            );
+
+            continue;
+
+        }
+
+
+        const previous =
+            currentGroup[
+                currentGroup.length - 1
+            ];
+
+
+        const gap =
+            candidate.frame -
+            previous.frame;
+
+
+        // 1フレーム飛んでも
+        // 同じ動作候補として扱う
+        if (
+            gap <= 2
+        ) {
+
+            currentGroup.push(
+                candidate
+            );
+
+        }
+
+        else {
+
+            groups.push(
+                currentGroup
+            );
+
+            currentGroup = [
+                candidate
+            ];
+
+        }
+
+    }
+
+
+    if (
+        currentGroup.length > 0
+    ) {
+
+        groups.push(
+            currentGroup
+        );
+
+    }
+
+
+    // --------------------------------------------------------
+    // 各グループを評価
+    //
+    // 評価要素
+    //
+    // ① 連続フレーム数
+    // ② likelihood
+    // ③ phase.jsの選択フレームに近いか
+    //
+    // 「長く続く＋着手らしい＋選択フレームに近い」
+    // グループを優先
+    // --------------------------------------------------------
+
+    let bestGroup =
+        null;
+
+    let bestGroupScore =
+        -Infinity;
+
+
+    for (
+        let i = 0;
+        i < groups.length;
+        i++
+    ) {
+
+        const group =
+            groups[i];
+
+
+        if (
+            group.length === 0
+        ) {
+
+            continue;
+
+        }
+
+
+        const firstFrame =
+            group[0].frame;
+
+        const lastFrame =
+            group[
+                group.length - 1
+            ].frame;
+
+
+        const centerFrame =
+            (
+                firstFrame +
+                lastFrame
+            ) / 2;
+
+
+        // ----------------------------------------------------
+        // グループ内の最大likelihood
+        // ----------------------------------------------------
+
+        let maxLikelihood =
+            NaN;
+
+        let totalLikelihood = 0;
+
+        let likelihoodCount = 0;
+
+
+        for (
+            let j = 0;
+            j < group.length;
+            j++
+        ) {
+
+            const likelihood =
+                group[j].likelihood;
+
+
+            if (
+                Number.isFinite(
+                    likelihood
+                )
+            ) {
+
+                if (
+                    !Number.isFinite(
+                        maxLikelihood
+                    ) ||
+                    likelihood >
+                    maxLikelihood
+                ) {
+
+                    maxLikelihood =
+                        likelihood;
+
+                }
+
+
+                totalLikelihood +=
+                    likelihood;
+
+                likelihoodCount++;
+
+            }
+
+        }
+
+
+        const averageLikelihood =
+            likelihoodCount > 0
+                ? totalLikelihood /
+                  likelihoodCount
+                : 5;
+
+
+        // ----------------------------------------------------
+        // 連続性スコア
+        //
+        // 1フレーム → 1
+        // 2フレーム → 2
+        // 3フレーム → 3
+        // ...
+        //
+        // 長く続く候補を優先
+        // ----------------------------------------------------
+
+        const continuityScore =
+            group.length;
+
+
+        // ----------------------------------------------------
+        // phase.jsが選んだフレームとの距離
+        // ----------------------------------------------------
+
+        const distanceFromBase =
+            Math.abs(
+                centerFrame -
+                baseFrame
+            );
+
+
+        // ----------------------------------------------------
+        // 距離ペナルティ
+        // ----------------------------------------------------
+
+        const distancePenalty =
+            distanceFromBase *
+            0.20;
+
+
+        // ----------------------------------------------------
+        // グループ評価
+        //
+        // 連続性を強めに評価する
+        // ----------------------------------------------------
+
+        const groupScore =
+            continuityScore * 1.5 +
+            averageLikelihood * 0.5 -
+            distancePenalty;
+
+
+        if (
+            groupScore >
+            bestGroupScore
+        ) {
+
+            bestGroupScore =
+                groupScore;
+
+            bestGroup = {
+
+                group:
+                    group,
+
+                firstFrame:
+                    firstFrame,
+
+                lastFrame:
+                    lastFrame,
+
+                centerFrame:
+                    centerFrame,
+
+                maxLikelihood:
+                    maxLikelihood,
+
+                averageLikelihood:
+                    averageLikelihood,
+
+                distanceFromBase:
+                    distanceFromBase,
+
+                groupScore:
+                    groupScore
+
+            };
+
+        }
+
+    }
+
+
+    // --------------------------------------------------------
+    // グループが決まらなかった場合
+    // --------------------------------------------------------
+
+    if (
+        !bestGroup
+    ) {
+
+        const fallbackFrame =
+            Math.max(
+                0,
+                Math.min(
+                    frames.length - 1,
+                    baseFrame
+                )
+            );
+
+
+        const fallback =
+            getFrame(
+                frames,
+                fallbackFrame
+            );
+
+
+        const fallbackMeasured =
+            getHandMeasuredValue(
+                fallback
+            );
+
+
+        if (
+            !Number.isFinite(
+                fallbackMeasured
+            )
+        ) {
+
+            return {
+
+                score: 0,
+
+                value: null,
+
+                measured:
+                    "取得できませんでした",
+
+                text:
+                    "着手位置を確認しましょう。",
+
+                candidateCount:
+                    candidateCount,
+
+                selectedFrame:
+                    fallbackFrame,
+
+                likelihood:
+                    null
+
+            };
+
+        }
+
+
+        return {
+
+            score: 0,
+
+            value:
+                round3(
+                    fallbackMeasured
+                ),
+
+            measured:
+                round3(
+                    fallbackMeasured
+                ),
+
+            text:
+                "着手位置を確認しましょう。",
+
+            candidateCount:
+                candidateCount,
+
+            selectedFrame:
+                fallbackFrame,
+
+            likelihood:
+                null
+
+        };
+
+    }
+
+
+    // --------------------------------------------------------
+    // 選択した連続グループ
+    // --------------------------------------------------------
+
+    const selectedGroup =
+        bestGroup.group;
+
+
+    // --------------------------------------------------------
+    // グループの中央フレーム
+    //
+    // ただし、
+    // phase.jsが選んだbaseFrameが
+    // グループ内に入っている場合は、
+    // baseFrameを優先する
+    //
+    // これにより大きくフレームがズレるのを防ぐ
+    // --------------------------------------------------------
+
+    let selectedFrame =
+        Math.round(
+            bestGroup.centerFrame
+        );
+
+
+    const baseIsInsideGroup =
+        selectedGroup.some(
+            function(candidate) {
+
+                return (
+                    candidate.frame ===
+                    baseFrame
+                );
+
+            }
+        );
+
+
+    if (
+        baseIsInsideGroup
+    ) {
+
+        selectedFrame =
+            baseFrame;
+
+    }
+
+
+    // --------------------------------------------------------
+    // 念のため範囲内に収める
+    // --------------------------------------------------------
+
+    selectedFrame =
+        Math.max(
+            0,
+            Math.min(
+                frames.length - 1,
+                selectedFrame
+            )
         );
 
 
     // --------------------------------------------------------
-    // 異常値対策
+    // 選択フレームから実測値を取得
+    // --------------------------------------------------------
+
+    let selectedFrameData =
+        getFrame(
+            frames,
+            selectedFrame
+        );
+
+
+    let measured =
+        getHandMeasuredValue(
+            selectedFrameData
+        );
+
+
+    // --------------------------------------------------------
+    // 中央フレームに値がない場合
+    // グループ内から最も近い有効フレームを探す
     // --------------------------------------------------------
 
     if (
-        !Number.isFinite(measured)
+        !Number.isFinite(
+            measured
+        )
+    ) {
+
+        let nearestCandidate =
+            null;
+
+        let nearestDistance =
+            Infinity;
+
+
+        for (
+            let i = 0;
+            i < selectedGroup.length;
+            i++
+        ) {
+
+            const candidate =
+                selectedGroup[i];
+
+
+            const frameData =
+                getFrame(
+                    frames,
+                    candidate.frame
+                );
+
+
+            const candidateMeasured =
+                getHandMeasuredValue(
+                    frameData
+                );
+
+
+            if (
+                !Number.isFinite(
+                    candidateMeasured
+                )
+            ) {
+
+                continue;
+
+            }
+
+
+            const distance =
+                Math.abs(
+                    candidate.frame -
+                    selectedFrame
+                );
+
+
+            if (
+                distance <
+                nearestDistance
+            ) {
+
+                nearestDistance =
+                    distance;
+
+                nearestCandidate = {
+
+                    frame:
+                        candidate.frame,
+
+                    measured:
+                        candidateMeasured,
+
+                    likelihood:
+                        candidate.likelihood
+
+                };
+
+            }
+
+        }
+
+
+        if (
+            nearestCandidate
+        ) {
+
+            selectedFrame =
+                nearestCandidate.frame;
+
+            measured =
+                nearestCandidate.measured;
+
+        }
+
+    }
+
+
+    // --------------------------------------------------------
+    // 実測値が取得できない場合
+    // --------------------------------------------------------
+
+    if (
+        !Number.isFinite(
+            measured
+        )
     ) {
 
         return {
@@ -1350,13 +1772,13 @@ function calculateHandScore(
                 candidateCount,
 
             selectedFrame:
-                selectedCandidate.frame,
+                selectedFrame,
 
             likelihood:
                 Number.isFinite(
-                    selectedLikelihood
+                    bestGroup.maxLikelihood
                 )
-                    ? selectedLikelihood
+                    ? bestGroup.maxLikelihood
                     : null
 
         };
@@ -1365,16 +1787,62 @@ function calculateHandScore(
 
 
     // --------------------------------------------------------
-    // 着手判定
+    // 選択フレームのlikelihoodを取得
+    // --------------------------------------------------------
+
+    let selectedLikelihood =
+        NaN;
+
+
+    for (
+        let i = 0;
+        i < selectedGroup.length;
+        i++
+    ) {
+
+        if (
+            selectedGroup[i].frame ===
+            selectedFrame
+        ) {
+
+            selectedLikelihood =
+                selectedGroup[i].likelihood;
+
+            break;
+
+        }
+
+    }
+
+
+    // --------------------------------------------------------
+    // 選択フレームにlikelihoodがない場合
+    // グループ最大値を使用
+    // --------------------------------------------------------
+
+    if (
+        !Number.isFinite(
+            selectedLikelihood
+        )
+    ) {
+
+        selectedLikelihood =
+            bestGroup.maxLikelihood;
+
+    }
+
+
+    // --------------------------------------------------------
+    // 着手評価
     //
-    // phase.jsのlikelihoodを優先する。
+    // likelihoodがある場合
     //
     // 9以上 → 2点
     // 6以上 → 1点
     // 6未満 → 0点
     //
-    // likelihoodが取れない場合だけ
-    // 実測値で暫定判定する。
+    // likelihoodがない場合は
+    // 既存の実測値による評価を使用
     // --------------------------------------------------------
 
     let score = 0;
@@ -1468,7 +1936,7 @@ function calculateHandScore(
     // --------------------------------------------------------
 
     console.log(
-        "========== 着手判定 Ver6.4 =========="
+        "========== 着手判定 Ver6.5 =========="
     );
 
     console.log(
@@ -1482,13 +1950,32 @@ function calculateHandScore(
     );
 
     console.log(
-        "確認した候補フレーム数:",
-        uniqueList.length
+        "候補グループ数:",
+        groups.length
+    );
+
+    console.log(
+        "選択グループ:",
+        bestGroup.firstFrame,
+        "～",
+        bestGroup.lastFrame
+    );
+
+    console.log(
+        "選択グループ連続数:",
+        selectedGroup.length
+    );
+
+    console.log(
+        "グループ中央フレーム:",
+        Math.round(
+            bestGroup.centerFrame
+        )
     );
 
     console.log(
         "選択着手フレーム:",
-        selectedCandidate.frame
+        selectedFrame
     );
 
     console.log(
@@ -1497,12 +1984,26 @@ function calculateHandScore(
     );
 
     console.log(
-        "着手らしさ:",
+        "選択likelihood:",
         Number.isFinite(
             selectedLikelihood
         )
             ? selectedLikelihood
             : null
+    );
+
+    console.log(
+        "平均likelihood:",
+        Number.isFinite(
+            bestGroup.averageLikelihood
+        )
+            ? bestGroup.averageLikelihood
+            : null
+    );
+
+    console.log(
+        "連続性スコア:",
+        selectedGroup.length
     );
 
     console.log(
@@ -1512,7 +2013,7 @@ function calculateHandScore(
 
 
     // --------------------------------------------------------
-    // 結果
+    // 結果を返す
     // --------------------------------------------------------
 
     return {
@@ -1537,7 +2038,7 @@ function calculateHandScore(
             candidateCount,
 
         selectedFrame:
-            selectedCandidate.frame,
+            selectedFrame,
 
         likelihood:
             Number.isFinite(
