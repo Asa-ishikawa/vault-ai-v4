@@ -260,11 +260,11 @@ function updateDiagnostic() {
 
     else if (
         ended &&
-        frameCount < 20
+        frameCount < 10
     ) {
 
         diagnosis =
-            "動画終了時点で骨格フレームが20未満です";
+            "動画終了時点で骨格フレームが10未満です";
 
         diagnosisColor =
             "#c62828";
