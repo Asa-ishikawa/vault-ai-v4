@@ -2109,10 +2109,90 @@ function calculateTakeOffScore(
         // 左右足首の差
         // ----------------------------------------------------
 
-        const measured =
-            calculateTakeOffDifference(
-                frame
+        // ----------------------------------------------------
+// 左右足首の差を直接計算
+// calculateTakeOffDifference()には依存しない
+// ----------------------------------------------------
+
+let measured = NaN;
+
+// フレームに保存されている値を優先
+const directTakeOffValues = [
+
+    frame.takeOffMeasured,
+    frame.takeOffValue,
+    frame.footDifference,
+    frame.footDiff,
+    frame.takeoffDifference
+
+];
+
+for (
+    let j = 0;
+    j < directTakeOffValues.length;
+    j++
+) {
+
+    const value =
+        Number(
+            directTakeOffValues[j]
+        );
+
+    if (
+        Number.isFinite(value)
+    ) {
+
+        measured =
+            Math.abs(value);
+
+        break;
+
+    }
+
+}
+
+
+// 保存値がなければ
+// 左右足首のY座標から計算
+if (
+    !Number.isFinite(measured)
+) {
+
+    const takeOffLandmarks =
+        getLandmarks(frame);
+
+    if (
+        takeOffLandmarks &&
+        takeOffLandmarks.length >= 29 &&
+        takeOffLandmarks[27] &&
+        takeOffLandmarks[28]
+    ) {
+
+        const leftY =
+            Number(
+                takeOffLandmarks[27].y
             );
+
+        const rightY =
+            Number(
+                takeOffLandmarks[28].y
+            );
+
+        if (
+            Number.isFinite(leftY) &&
+            Number.isFinite(rightY)
+        ) {
+
+            measured =
+                Math.abs(
+                    leftY - rightY
+                );
+
+        }
+
+    }
+
+}
 
 
         if (
