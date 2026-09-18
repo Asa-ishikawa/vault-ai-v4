@@ -1151,7 +1151,7 @@ function finishAnalysis() {
     let finalMessage = "";
 
 
-    if (frameCount < 20) {
+    if (frameCount < 10) {
 
         finalMessage = `
             <div style="
@@ -1220,7 +1220,7 @@ function finishAnalysis() {
 
     if (
         !frames ||
-        frames.length < 20
+        frames.length < 10
     ) {
 
         getPhaseInfoElement()
