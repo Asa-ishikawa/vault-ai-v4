@@ -301,7 +301,7 @@ function updateDiagnostic() {
     }
 
     else if (
-        frameCount < 20
+        frameCount < 10
     ) {
 
         diagnosis =
