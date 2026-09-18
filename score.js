@@ -131,16 +131,303 @@ function calculateDScore(frames, phase) {
         );
 
 
-    // ========================================================
-    // ③ 着手
-    // ========================================================
+    // ============================================================
+// ③ 着手位置
+//
+// Ver6.6
+//
+// 改良方針
+// ・phase.js が選択した着手フレームをそのまま使用
+// ・pose.js の handMeasured を実測値として使用
+// ・likelihoodだけではなく「着手候補数」を判定材料にする
+// ・候補数が多いほど、着手動作を連続して捉えられていると判断
+//
+// 暫定判定基準
+// ・候補25以上 → 2点
+// ・候補10～24 → 1点
+// ・候補9以下 → 0点
+//
+// ※他の「膝・腰・踏切・着地」は変更しない
+// ============================================================
 
-    const handData =
-        calculateHandScore(
+function calculateHandScore(
+    frames,
+    phase,
+    handFrame
+) {
+
+    // --------------------------------------------------------
+    // ① 選択された着手フレームを取得
+    // --------------------------------------------------------
+
+    const selectedFrame =
+        Number(handFrame);
+
+
+    const frame =
+        getFrame(
             frames,
-            phase,
-            handFrame
+            selectedFrame
         );
+
+
+    // --------------------------------------------------------
+    // ② pose.js が保存した着手位置の実測値
+    // --------------------------------------------------------
+
+    const measured =
+        getHandMeasuredValue(
+            frame
+        );
+
+
+    // --------------------------------------------------------
+    // ③ phase.js の着手候補
+    // --------------------------------------------------------
+
+    const candidates =
+        getHandCandidates(
+            phase
+        );
+
+
+    const candidateCount =
+        candidates.length;
+
+
+    // --------------------------------------------------------
+    // ④ 実測値が取得できない場合
+    // --------------------------------------------------------
+
+    if (
+        !Number.isFinite(measured)
+    ) {
+
+        return {
+
+            score: 0,
+
+            value: null,
+
+            measured:
+                "取得できませんでした",
+
+            text:
+                "着手位置を確認しましょう。",
+
+            candidateCount:
+                candidateCount,
+
+            selectedFrame:
+                Number.isFinite(selectedFrame)
+                    ? selectedFrame
+                    : null,
+
+            likelihood:
+                null
+        };
+    }
+
+
+    // --------------------------------------------------------
+    // ⑤ 異常値チェック
+    //
+    // handMeasured は
+    // 跳び箱上面との距離として扱う。
+    //
+    // 通常の着手判定から大きく外れる値は
+    // 信頼性が低いので0点。
+    // --------------------------------------------------------
+
+    if (
+        measured < 0 ||
+        measured > 1.5
+    ) {
+
+        return {
+
+            score: 0,
+
+            value:
+                round3(measured),
+
+            measured:
+                round3(measured),
+
+            text:
+                "着手位置を確認しましょう。",
+
+            candidateCount:
+                candidateCount,
+
+            selectedFrame:
+                Number.isFinite(selectedFrame)
+                    ? selectedFrame
+                    : null,
+
+            likelihood:
+                null
+        };
+    }
+
+
+    // --------------------------------------------------------
+    // ⑥ 着手候補数による評価
+    //
+    // 候補数が多い
+    // ↓
+    // 着手付近の動作を連続して検出
+    // ↓
+    // 着手判定の信頼度が高い
+    //
+    // 今回の3本のデータ
+    //
+    // 成功① → 50候補
+    // 成功② → 34候補
+    // 普通① → 12候補
+    //
+    // これを基準にする。
+    // --------------------------------------------------------
+
+    let score = 0;
+
+
+    if (
+        candidateCount >= 25
+    ) {
+
+        score = 2;
+
+    }
+
+    else if (
+        candidateCount >= 10
+    ) {
+
+        score = 1;
+
+    }
+
+    else {
+
+        score = 0;
+    }
+
+
+    // --------------------------------------------------------
+    // ⑦ 評価コメント
+    // --------------------------------------------------------
+
+    let text = "";
+
+
+    if (
+        score === 2
+    ) {
+
+        text =
+            "着手位置が安定しています。";
+
+    }
+
+    else if (
+        score === 1
+    ) {
+
+        text =
+            "着手位置を確認しましょう。手をつく位置を安定させると、さらによくなります。";
+
+    }
+
+    else {
+
+        text =
+            "着手位置を確認しましょう。";
+    }
+
+
+    // --------------------------------------------------------
+    // ⑧ 選択候補のlikelihoodを確認
+    //
+    // 採点の主基準にはしない。
+    // 診断表示用として残す。
+    // --------------------------------------------------------
+
+    let likelihood = NaN;
+
+
+    for (
+        let i = 0;
+        i < candidates.length;
+        i++
+    ) {
+
+        const candidate =
+            candidates[i];
+
+
+        const candidateFrame =
+            getCandidateFrame(
+                candidate
+            );
+
+
+        if (
+            candidateFrame ===
+            selectedFrame
+        ) {
+
+            likelihood =
+                getCandidateLikelihood(
+                    candidate
+                );
+
+            break;
+        }
+    }
+
+
+    // --------------------------------------------------------
+    // ⑨ 結果
+    // --------------------------------------------------------
+
+    return {
+
+        score:
+            score,
+
+        value:
+            round3(measured),
+
+        measured:
+            round3(measured),
+
+        text:
+            text,
+
+        candidateCount:
+            candidateCount,
+
+        selectedFrame:
+            Number.isFinite(selectedFrame)
+                ? selectedFrame
+                : null,
+
+        likelihood:
+            Number.isFinite(likelihood)
+                ? round3(likelihood)
+                : null,
+
+        threshold0:
+            "候補9以下",
+
+        threshold1:
+            "候補10～24",
+
+        threshold2:
+            "候補25以上"
+    };
+}
 
 
     // ========================================================
