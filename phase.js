@@ -1152,27 +1152,82 @@ function selectTrueHandContact(
 // 最高点
 // ============================================================
 
+// ============================================================
+// 最高点 改良版
+//
+// ・着手後から最高点を探す
+// ・1フレームだけのノイズを避ける
+// ・腰Yが小さい位置を基本とする
+// ・最高点付近の3フレームを確認して安定させる
+// ・短い動画にも対応
+// ============================================================
+
 function detectHighestHip(
     frames,
     handContact
 ) {
 
+    if (
+        !Array.isArray(frames) ||
+        frames.length < 5
+    ) {
+
+        return 0;
+
+    }
+
+
+    // --------------------------------------------------------
+    // 探索開始
+    // 着手の1フレーム後から
+    // --------------------------------------------------------
+
     const start =
-        Math.min(
-            frames.length - 1,
-            handContact + 1
+        Math.max(
+            0,
+            Math.min(
+                frames.length - 1,
+                Number(handContact) + 1
+            )
         );
 
-    let highest =
+
+    // --------------------------------------------------------
+    // 着地後まで探し続けないよう、
+    // 動画後半の少し手前までを基本探索範囲にする
+    //
+    // 短い動画では最低限、最後まで確認する
+    // --------------------------------------------------------
+
+    const normalEnd =
+        Math.floor(
+            frames.length * 0.85
+        );
+
+    const end =
+        Math.max(
+            start + 1,
+            Math.min(
+                frames.length - 1,
+                normalEnd
+            )
+        );
+
+
+    let bestFrame =
         start;
 
-    let minY =
+    let bestY =
         Infinity;
 
 
+    // --------------------------------------------------------
+    // 腰Yの最小値を探す
+    // --------------------------------------------------------
+
     for (
         let i = start;
-        i < frames.length;
+        i <= end;
         i++
     ) {
 
@@ -1185,15 +1240,25 @@ function detectHighestHip(
             continue;
         }
 
+
+        const y =
+            Number(hip.y);
+
         if (
-            hip.y <
-            minY
+            !Number.isFinite(y)
+        ) {
+            continue;
+        }
+
+
+        if (
+            y < bestY
         ) {
 
-            minY =
-                hip.y;
+            bestY =
+                y;
 
-            highest =
+            bestFrame =
                 i;
 
         }
@@ -1201,9 +1266,109 @@ function detectHighestHip(
     }
 
 
-    return highest;
-}
+    // --------------------------------------------------------
+    // 最高点が見つからなかった場合
+    // --------------------------------------------------------
 
+    if (
+        !Number.isFinite(bestY)
+    ) {
+
+        return start;
+
+    }
+
+
+    // --------------------------------------------------------
+    // 最高点付近を再確認
+    //
+    // bestFrameの前後1フレームを調べ、
+    // その3フレームの中で最も高い位置を採用
+    // --------------------------------------------------------
+
+    let stableFrame =
+        bestFrame;
+
+    let stableY =
+        bestY;
+
+
+    const stableStart =
+        Math.max(
+            start,
+            bestFrame - 1
+        );
+
+    const stableEnd =
+        Math.min(
+            end,
+            bestFrame + 1
+        );
+
+
+    for (
+        let i = stableStart;
+        i <= stableEnd;
+        i++
+    ) {
+
+        const hip =
+            getHipCenter(
+                frames[i]
+            );
+
+        if (!hip) {
+            continue;
+        }
+
+
+        const y =
+            Number(hip.y);
+
+        if (
+            !Number.isFinite(y)
+        ) {
+            continue;
+        }
+
+
+        if (
+            y < stableY
+        ) {
+
+            stableY =
+                y;
+
+            stableFrame =
+                i;
+
+        }
+
+    }
+
+
+    console.log(
+        "========== 最高点判定 改良版 =========="
+    );
+
+    console.log(
+        "着手フレーム:",
+        handContact
+    );
+
+    console.log(
+        "最高点フレーム:",
+        stableFrame
+    );
+
+    console.log(
+        "最高点腰Y:",
+        stableY
+    );
+
+
+    return stableFrame;
+}
 
 // ============================================================
 // 着地
