@@ -131,23 +131,21 @@ function calculateDScore(frames, phase) {
         );
 
 
-    // ============================================================
+ // ============================================================
 // ③ 着手位置
 //
-// Ver6.6
+// Ver6.6 安全版
 //
-// 改良方針
-// ・phase.js が選択した着手フレームをそのまま使用
-// ・pose.js の handMeasured を実測値として使用
-// ・likelihoodだけではなく「着手候補数」を判定材料にする
-// ・候補数が多いほど、着手動作を連続して捉えられていると判断
+// ・Dスコア全体を止めない
+// ・pose.js の handMeasured を優先
+// ・handBoxDistance も利用
+// ・phase.js の候補数を利用
+// ・候補数
+//      25以上 → 2点
+//      10～24 → 1点
+//      9以下 → 0点
 //
-// 暫定判定基準
-// ・候補25以上 → 2点
-// ・候補10～24 → 1点
-// ・候補9以下 → 0点
-//
-// ※他の「膝・腰・踏切・着地」は変更しない
+// ※膝・腰・踏切・着地は一切変更しない
 // ============================================================
 
 function calculateHandScore(
@@ -157,46 +155,194 @@ function calculateHandScore(
 ) {
 
     // --------------------------------------------------------
-    // ① 選択された着手フレームを取得
+    // ① 初期値
     // --------------------------------------------------------
 
-    const selectedFrame =
+    let measured = NaN;
+
+    let candidateCount = 0;
+
+    let selectedFrame = null;
+
+
+    // --------------------------------------------------------
+    // ② フレーム番号
+    // --------------------------------------------------------
+
+    const frameNumber =
         Number(handFrame);
 
-
-    const frame =
-        getFrame(
-            frames,
-            selectedFrame
-        );
-
-
-    // --------------------------------------------------------
-    // ② pose.js が保存した着手位置の実測値
-    // --------------------------------------------------------
-
-    const measured =
-        getHandMeasuredValue(
-            frame
-        );
+    if (
+        Number.isFinite(frameNumber)
+    ) {
+        selectedFrame =
+            Math.round(frameNumber);
+    }
 
 
     // --------------------------------------------------------
-    // ③ phase.js の着手候補
+    // ③ フレーム取得
     // --------------------------------------------------------
 
-    const candidates =
-        getHandCandidates(
-            phase
-        );
+    let frame = null;
 
 
-    const candidateCount =
-        candidates.length;
+    if (
+        Array.isArray(frames) &&
+        frames.length > 0
+    ) {
+
+        let safeIndex =
+            Number.isFinite(selectedFrame)
+                ? selectedFrame
+                : 0;
+
+
+        safeIndex =
+            Math.max(
+                0,
+                Math.min(
+                    Math.round(safeIndex),
+                    frames.length - 1
+                )
+            );
+
+
+        frame =
+            frames[safeIndex];
+
+        selectedFrame =
+            safeIndex;
+    }
 
 
     // --------------------------------------------------------
-    // ④ 実測値が取得できない場合
+    // ④ 着手候補数
+    //
+    // phase.js の構造が多少違っても
+    // エラーにならないようにする
+    // --------------------------------------------------------
+
+    try {
+
+        if (
+            phase &&
+            Array.isArray(
+                phase.handCandidates
+            )
+        ) {
+
+            candidateCount =
+                phase.handCandidates.length;
+        }
+
+        else if (
+            phase &&
+            Array.isArray(
+                phase.handContactCandidates
+            )
+        ) {
+
+            candidateCount =
+                phase.handContactCandidates.length;
+        }
+
+        else if (
+            phase &&
+            Array.isArray(
+                phase.candidates
+            )
+        ) {
+
+            candidateCount =
+                phase.candidates.length;
+        }
+
+        else if (
+            phase &&
+            Array.isArray(
+                phase.handCandidateList
+            )
+        ) {
+
+            candidateCount =
+                phase.handCandidateList.length;
+        }
+
+    } catch (error) {
+
+        candidateCount = 0;
+    }
+
+
+    // --------------------------------------------------------
+    // ⑤ 実測値
+    //
+    // pose.js Ver6.6で追加した
+    // handMeasured を最優先
+    // --------------------------------------------------------
+
+    try {
+
+        if (
+            frame &&
+            Number.isFinite(
+                Number(
+                    frame.handMeasured
+                )
+            )
+        ) {
+
+            measured =
+                Math.abs(
+                    Number(
+                        frame.handMeasured
+                    )
+                );
+        }
+
+        else if (
+            frame &&
+            Number.isFinite(
+                Number(
+                    frame.handBoxDistance
+                )
+            )
+        ) {
+
+            measured =
+                Math.abs(
+                    Number(
+                        frame.handBoxDistance
+                    )
+                );
+        }
+
+        else if (
+            frame &&
+            Number.isFinite(
+                Number(
+                    frame.handPosition
+                )
+            )
+        ) {
+
+            measured =
+                Math.abs(
+                    Number(
+                        frame.handPosition
+                    )
+                );
+        }
+
+    } catch (error) {
+
+        measured = NaN;
+    }
+
+
+    // --------------------------------------------------------
+    // ⑥ 実測値が取得できない場合
     // --------------------------------------------------------
 
     if (
@@ -219,9 +365,7 @@ function calculateHandScore(
                 candidateCount,
 
             selectedFrame:
-                Number.isFinite(selectedFrame)
-                    ? selectedFrame
-                    : null,
+                selectedFrame,
 
             likelihood:
                 null
@@ -230,13 +374,7 @@ function calculateHandScore(
 
 
     // --------------------------------------------------------
-    // ⑤ 異常値チェック
-    //
-    // handMeasured は
-    // 跳び箱上面との距離として扱う。
-    //
-    // 通常の着手判定から大きく外れる値は
-    // 信頼性が低いので0点。
+    // ⑦ 異常値チェック
     // --------------------------------------------------------
 
     if (
@@ -249,10 +387,14 @@ function calculateHandScore(
             score: 0,
 
             value:
-                round3(measured),
+                Number(
+                    measured.toFixed(3)
+                ),
 
             measured:
-                round3(measured),
+                Number(
+                    measured.toFixed(3)
+                ),
 
             text:
                 "着手位置を確認しましょう。",
@@ -261,9 +403,7 @@ function calculateHandScore(
                 candidateCount,
 
             selectedFrame:
-                Number.isFinite(selectedFrame)
-                    ? selectedFrame
-                    : null,
+                selectedFrame,
 
             likelihood:
                 null
@@ -272,21 +412,9 @@ function calculateHandScore(
 
 
     // --------------------------------------------------------
-    // ⑥ 着手候補数による評価
+    // ⑧ 着手位置の暫定評価
     //
-    // 候補数が多い
-    // ↓
-    // 着手付近の動作を連続して検出
-    // ↓
-    // 着手判定の信頼度が高い
-    //
-    // 今回の3本のデータ
-    //
-    // 成功① → 50候補
-    // 成功② → 34候補
-    // 普通① → 12候補
-    //
-    // これを基準にする。
+    // 候補数を使用
     // --------------------------------------------------------
 
     let score = 0;
@@ -315,7 +443,7 @@ function calculateHandScore(
 
 
     // --------------------------------------------------------
-    // ⑦ 評価コメント
+    // ⑨ コメント
     // --------------------------------------------------------
 
     let text = "";
@@ -347,48 +475,7 @@ function calculateHandScore(
 
 
     // --------------------------------------------------------
-    // ⑧ 選択候補のlikelihoodを確認
-    //
-    // 採点の主基準にはしない。
-    // 診断表示用として残す。
-    // --------------------------------------------------------
-
-    let likelihood = NaN;
-
-
-    for (
-        let i = 0;
-        i < candidates.length;
-        i++
-    ) {
-
-        const candidate =
-            candidates[i];
-
-
-        const candidateFrame =
-            getCandidateFrame(
-                candidate
-            );
-
-
-        if (
-            candidateFrame ===
-            selectedFrame
-        ) {
-
-            likelihood =
-                getCandidateLikelihood(
-                    candidate
-                );
-
-            break;
-        }
-    }
-
-
-    // --------------------------------------------------------
-    // ⑨ 結果
+    // ⑩ 結果
     // --------------------------------------------------------
 
     return {
@@ -397,10 +484,14 @@ function calculateHandScore(
             score,
 
         value:
-            round3(measured),
+            Number(
+                measured.toFixed(3)
+            ),
 
         measured:
-            round3(measured),
+            Number(
+                measured.toFixed(3)
+            ),
 
         text:
             text,
@@ -409,14 +500,10 @@ function calculateHandScore(
             candidateCount,
 
         selectedFrame:
-            Number.isFinite(selectedFrame)
-                ? selectedFrame
-                : null,
+            selectedFrame,
 
         likelihood:
-            Number.isFinite(likelihood)
-                ? round3(likelihood)
-                : null,
+            null,
 
         threshold0:
             "候補9以下",
@@ -427,7 +514,7 @@ function calculateHandScore(
         threshold2:
             "候補25以上"
     };
-}
+}  
 
 
     // ========================================================
