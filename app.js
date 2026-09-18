@@ -1367,15 +1367,54 @@ function finishAnalysis() {
 
     catch (error) {
 
-        console.error(
-            "Dスコア計算エラー:",
-            error
-        );
+    console.error(
+        "Dスコア計算エラー:",
+        error
+    );
 
-        status.textContent =
-            "Dスコア計算に失敗しました";
+    const errorMessage =
+        error &&
+        error.message
+            ? error.message
+            : String(error);
 
-        return;
+    status.textContent =
+        "Dスコア計算に失敗しました";
+
+    getPhaseInfoElement()
+        .innerHTML = `
+            <div style="
+                margin-top:10px;
+                padding:12px;
+                background:#ffebee;
+                border-radius:8px;
+                color:#b71c1c;
+            ">
+                <strong>Dスコア計算エラー</strong><br><br>
+
+                ${errorMessage}
+
+                <br><br>
+
+                <strong>取得フレーム：</strong>
+                ${frames.length}
+
+                <br>
+
+                <strong>着手フレーム：</strong>
+                ${
+                    phase &&
+                    Number.isFinite(
+                        Number(phase.handContact)
+                    )
+                    ? phase.handContact
+                    : "-"
+                }
+            </div>
+        `;
+
+    return;
+
 
     }
 
