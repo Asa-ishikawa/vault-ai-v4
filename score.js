@@ -3187,230 +3187,34 @@ function getHipCenter(frame) {
 function getHandMeasuredValue(frame) {
 
     if (!frame) {
-
         return NaN;
-
     }
 
+    // ========================================
+    // pose.js Ver6.6で計算した
+    // 「手と跳び箱の距離」を最優先
+    // ========================================
 
-    // frame自身に保存されている場合
-    const directValues = [
-
+    const values = [
         frame.handMeasured,
-
-        frame.handPosition,
-
-        frame.handValue,
-
-        frame.handDistance
-
+        frame.handBoxDistance
     ];
 
+    for (let i = 0; i < values.length; i++) {
 
-    for (
-        let i = 0;
-        i < directValues.length;
-        i++
-    ) {
+        const value = Number(values[i]);
 
-        const value =
-            Number(
-                directValues[i]
-            );
-
-
-        if (
-            Number.isFinite(value)
-        ) {
-
+        if (Number.isFinite(value)) {
             return Math.abs(value);
-
         }
-
     }
 
-
-    // landmarkからの簡易値
-    const landmarks =
-        getLandmarks(frame);
-
-
-    if (
-        !landmarks ||
-        landmarks.length < 17
-    ) {
-
-        return NaN;
-
-    }
-
-
-    const leftWrist =
-        landmarks[15];
-
-    const rightWrist =
-        landmarks[16];
-
-
-    const values = [];
-
-
-    if (
-        leftWrist &&
-        Number.isFinite(
-            Number(leftWrist.x)
-        )
-    ) {
-
-        values.push(
-            Math.abs(
-                Number(leftWrist.x)
-            )
-        );
-
-    }
-
-
-    if (
-        rightWrist &&
-        Number.isFinite(
-            Number(rightWrist.x)
-        )
-    ) {
-
-        values.push(
-            Math.abs(
-                Number(rightWrist.x)
-            )
-        );
-
-    }
-
-
-    if (
-        values.length === 0
-    ) {
-
-        return NaN;
-
-    }
-
-
-    return (
-        values.reduce(
-            (a, b) => a + b,
-            0
-        ) /
-        values.length
-    );
-}
-
-
-// ============================================================
-// 踏切差
-// ============================================================
-
-function calculateTakeOffDifference(
-    frame
-) {
-
-    if (!frame) {
-
-        return NaN;
-
-    }
-
-
-    // frameに保存されている値を優先
-    const directValues = [
-
-        frame.takeOffMeasured,
-
-        frame.takeOffValue,
-
-        frame.footDifference,
-
-        frame.footDiff,
-
-        frame.takeoffDifference
-
-    ];
-
-
-    for (
-        let i = 0;
-        i < directValues.length;
-        i++
-    ) {
-
-        const value =
-            Number(
-                directValues[i]
-            );
-
-
-        if (
-            Number.isFinite(value)
-        ) {
-
-            return Math.abs(value);
-
-        }
-
-    }
-
-
-    const landmarks =
-        getLandmarks(frame);
-
-
-    if (
-        !landmarks ||
-        landmarks.length < 31
-    ) {
-
-        return NaN;
-
-    }
-
-
-    // 左右足首
-    const left =
-        landmarks[27];
-
-    const right =
-        landmarks[28];
-
-
-    if (
-        !left ||
-        !right
-    ) {
-
-        return NaN;
-
-    }
-
-
-    const difference =
-        Math.abs(
-            Number(left.y) -
-            Number(right.y)
-        );
-
-
-    if (
-        !Number.isFinite(
-            difference
-        )
-    ) {
-
-        return NaN;
-
-    }
-
-
-    return difference;
+    // ========================================
+    // 跳び箱情報が取得できなかった場合
+    // 古い測定値には戻らない
+    // ========================================
+
+    return NaN;
 }
 
 
