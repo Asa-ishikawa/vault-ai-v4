@@ -2565,14 +2565,29 @@ if (
 // ・他4項目の採点ロジックは変更しない
 // ============================================================
 
+// ============================================================
+// 着地スコア 改良版
+//
+// ・短い動画に対応
+// ・着地フレームの前後を広めに確認
+// ・visibility 0.45未満でも、座標が有効なら候補として利用
+// ・極端に信頼度の低い値だけ除外
+// ・中央値で1フレームの誤認識を抑える
+// ・評価基準そのものは変更しない
+//
+// 0.05以下       → 2点
+// 0.05～0.10     → 1点
+// 0.10超         → 0点
+// ============================================================
+
 function calculateLandingScore(
     frames,
     frameIndex
 ) {
 
-    // ========================================================
+    // --------------------------------------------------------
     // 基本チェック
-    // ========================================================
+    // --------------------------------------------------------
 
     if (
         !Array.isArray(frames) ||
@@ -2605,9 +2620,9 @@ function calculateLandingScore(
     }
 
 
-    // ========================================================
+    // --------------------------------------------------------
     // 着地フレームを安全に取得
-    // ========================================================
+    // --------------------------------------------------------
 
     const landingFrame =
         safeFrameIndex(
@@ -2617,20 +2632,19 @@ function calculateLandingScore(
         );
 
 
-    // ========================================================
-    // 着地周辺のフレームを取得
+    // --------------------------------------------------------
+    // 短い動画に対応するため、
+    // 着地フレームの前後4フレームを見る
     //
-    // 着地直前2フレーム
-    // 着地フレーム
-    // 着地直後1フレーム
-    //
-    // 合計4フレーム
-    // ========================================================
+    // 例：
+    // landingFrame = 18
+    // → 14～19を確認
+    // --------------------------------------------------------
 
     const start =
         Math.max(
             0,
-            landingFrame - 2
+            landingFrame - 4
         );
 
 
@@ -2644,6 +2658,10 @@ function calculateLandingScore(
     const values = [];
 
 
+    // --------------------------------------------------------
+    // 着地周辺を確認
+    // --------------------------------------------------------
+
     for (
         let i = start;
         i <= end;
@@ -2655,15 +2673,13 @@ function calculateLandingScore(
 
 
         if (!frame) {
-
             continue;
-
         }
 
 
-        // ----------------------------------------------------
-        // まずフレームに保存された着地実測値を確認
-        // ----------------------------------------------------
+        // ====================================================
+        // ① pose.js等ですでに着地値が保存されている場合
+        // ====================================================
 
         const directValues = [
 
@@ -2678,7 +2694,7 @@ function calculateLandingScore(
         ];
 
 
-        let found = false;
+        let directFound = false;
 
 
         for (
@@ -2694,14 +2710,16 @@ function calculateLandingScore(
 
 
             if (
-                Number.isFinite(value)
+                Number.isFinite(value) &&
+                value >= 0 &&
+                value <= 2
             ) {
 
                 values.push(
                     Math.abs(value)
                 );
 
-                found = true;
+                directFound = true;
 
                 break;
 
@@ -2710,16 +2728,14 @@ function calculateLandingScore(
         }
 
 
-        // ----------------------------------------------------
-        // 保存値がない場合は左右足の距離を計算
-        // ----------------------------------------------------
-
-        if (found) {
-
+        if (directFound) {
             continue;
-
         }
 
+
+        // ====================================================
+        // ② ランドマークから左右足首を取得
+        // ====================================================
 
         const landmarks =
             getLandmarks(
@@ -2740,7 +2756,6 @@ function calculateLandingScore(
         const left =
             landmarks[27];
 
-
         const right =
             landmarks[28];
 
@@ -2754,6 +2769,14 @@ function calculateLandingScore(
 
         }
 
+
+        // ----------------------------------------------------
+        // visibility
+        //
+        // 以前：0.45未満は完全除外
+        //
+        // 今回：0.20未満だけ除外
+        // ----------------------------------------------------
 
         const leftVisibility =
             left.visibility !== undefined
@@ -2771,10 +2794,13 @@ function calculateLandingScore(
                 : 1;
 
 
-        // 骨格認識が低いフレームは除外
         if (
-            leftVisibility < 0.45 ||
-            rightVisibility < 0.45
+            !Number.isFinite(
+                leftVisibility
+            ) ||
+            !Number.isFinite(
+                rightVisibility
+            )
         ) {
 
             continue;
@@ -2782,14 +2808,57 @@ function calculateLandingScore(
         }
 
 
-        const dx =
-            Number(left.x) -
+        if (
+            leftVisibility < 0.20 ||
+            rightVisibility < 0.20
+        ) {
+
+            continue;
+
+        }
+
+
+        // ----------------------------------------------------
+        // 座標を取得
+        // ----------------------------------------------------
+
+        const leftX =
+            Number(left.x);
+
+        const leftY =
+            Number(left.y);
+
+        const rightX =
             Number(right.x);
+
+        const rightY =
+            Number(right.y);
+
+
+        if (
+            !Number.isFinite(leftX) ||
+            !Number.isFinite(leftY) ||
+            !Number.isFinite(rightX) ||
+            !Number.isFinite(rightY)
+        ) {
+
+            continue;
+
+        }
+
+
+        // ----------------------------------------------------
+        // 左右足首の距離
+        // ----------------------------------------------------
+
+        const dx =
+            leftX -
+            rightX;
 
 
         const dy =
-            Number(left.y) -
-            Number(right.y);
+            leftY -
+            rightY;
 
 
         const distance =
@@ -2800,22 +2869,36 @@ function calculateLandingScore(
 
 
         if (
-            Number.isFinite(
-                distance
-            )
+            !Number.isFinite(distance)
         ) {
 
-            values.push(
-                distance
-            );
+            continue;
 
         }
+
+
+        // ----------------------------------------------------
+        // 明らかな異常値を除外
+        // ----------------------------------------------------
+
+        if (
+            distance > 1.0
+        ) {
+
+            continue;
+
+        }
+
+
+        values.push(
+            distance
+        );
 
     }
 
 
     // ========================================================
-    // データなし
+    // データが1つも取れなかった場合
     // ========================================================
 
     if (
@@ -2841,7 +2924,13 @@ function calculateLandingScore(
                 "0.05より大きく0.10以下",
 
             threshold2:
-                "0.05以下"
+                "0.05以下",
+
+            landingFrame:
+                landingFrame,
+
+            candidateCount:
+                0
 
         };
 
@@ -2849,10 +2938,7 @@ function calculateLandingScore(
 
 
     // ========================================================
-    // 中央値を計算
-    //
-    // 1フレームだけ極端な値になっても
-    // 判定全体が大きく変わりにくい
+    // 中央値
     // ========================================================
 
     const sortedValues =
@@ -2861,13 +2947,13 @@ function calculateLandingScore(
         );
 
 
-    let measured;
-
-
     const middle =
         Math.floor(
             sortedValues.length / 2
         );
+
+
+    let measured;
 
 
     if (
@@ -2893,11 +2979,7 @@ function calculateLandingScore(
     // ========================================================
     // 着地評価
     //
-    // 現在の基準を維持
-    //
-    // 0.05以下       → 2点
-    // 0.05～0.10     → 1点
-    // 0.10超         → 0点
+    // 既存基準を維持
     // ========================================================
 
     let score = 0;
@@ -2938,11 +3020,11 @@ function calculateLandingScore(
 
 
     // ========================================================
-    // 診断情報
+    // 診断
     // ========================================================
 
     console.log(
-        "========== 着地判定 Ver6.3.2 =========="
+        "========== 着地判定 改良版 =========="
     );
 
     console.log(
@@ -2951,7 +3033,7 @@ function calculateLandingScore(
     );
 
     console.log(
-        "着地評価フレーム範囲:",
+        "実際に評価した範囲:",
         start,
         "～",
         end
@@ -2963,7 +3045,12 @@ function calculateLandingScore(
     );
 
     console.log(
-        "着地候補値の中央値:",
+        "着地候補数:",
+        values.length
+    );
+
+    console.log(
+        "着地中央値:",
         measured
     );
 
