@@ -3562,6 +3562,32 @@ function calculateLandingDifference(
     // --------------------------------------------------------
     // 着地時の足のばらつき
     // --------------------------------------------------------
+console.log(
+    "========== 着手実測値 診断 =========="
+);
+
+console.log(
+    "左手首X:",
+    leftWrist
+        ? leftWrist.x
+        : "なし"
+);
+
+console.log(
+    "右手首X:",
+    rightWrist
+        ? rightWrist.x
+        : "なし"
+);
+
+console.log(
+    "使用した手首X平均:",
+    values.reduce(
+        (a, b) => a + b,
+        0
+    ) /
+    values.length
+);
 
     return (
         values.reduce(
