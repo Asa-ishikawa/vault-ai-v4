@@ -1,13 +1,6 @@
 // ===============================
 // 跳び箱AI採点システム
-// pose.js 着手フレーム診断版
-//
-// 変更点
-// ・骨格解析の基本処理は維持
-// ・現在の解析フレーム番号を表示
-// ・動画時間を表示
-// ・解析済みフレーム数を表示
-// ・各pose frameにtimeを保存
+// pose.js 着手フレーム時間診断版
 // ===============================
 
 let pose = null;
@@ -17,7 +10,7 @@ let frameCount = 0;
 
 
 // ============================================================
-// 診断表示エリア
+// 診断表示
 // ============================================================
 
 function getPoseDiagnosticElement() {
@@ -27,85 +20,39 @@ function getPoseDiagnosticElement() {
             "poseDiagnostic"
         );
 
-
     if (element) {
-
         return element;
-
     }
 
-
     element =
-        document.createElement(
-            "div"
-        );
-
+        document.createElement("div");
 
     element.id =
         "poseDiagnostic";
 
-
     element.style.cssText = `
-        position: absolute;
-        top: 10px;
-        left: 10px;
-        z-index: 9999;
-
-        background: rgba(0,0,0,0.75);
-        color: #ffffff;
-
-        padding: 10px 14px;
-
-        border-radius: 8px;
-
-        font-size: 16px;
-        line-height: 1.6;
-
-        font-family:
-            Arial,
-            "Noto Sans JP",
-            sans-serif;
-
-        pointer-events: none;
+        margin-top:10px;
+        padding:10px;
+        background:#f5f5f5;
+        border-radius:8px;
+        font-size:14px;
+        line-height:1.7;
     `;
 
-
-    // canvasの親要素を基準に表示
-    const canvas =
+    const videoContainer =
         document.getElementById(
-            "outputCanvas"
+            "videoContainer"
         );
 
+    if (videoContainer) {
 
-    if (
-        canvas &&
-        canvas.parentElement
-    ) {
+        videoContainer.parentElement
+            .insertBefore(
+                element,
+                videoContainer.nextSibling
+            );
 
-        const parent =
-            canvas.parentElement;
-
-
-        if (
-            getComputedStyle(
-                parent
-            ).position ===
-            "static"
-        ) {
-
-            parent.style.position =
-                "relative";
-
-        }
-
-
-        parent.appendChild(
-            element
-        );
-
-    }
-
-    else {
+    } else {
 
         document.body.appendChild(
             element
@@ -113,14 +60,12 @@ function getPoseDiagnosticElement() {
 
     }
 
-
     return element;
-
 }
 
 
 // ============================================================
-// 診断情報を表示
+// 現在の解析状況を表示
 // ============================================================
 
 function updatePoseDiagnostic(
@@ -130,47 +75,29 @@ function updatePoseDiagnostic(
     const diagnostic =
         getPoseDiagnosticElement();
 
-
-    if (!diagnostic) {
-
-        return;
-
-    }
-
-
     const currentTime =
-        Number(
-            video.currentTime
-        );
-
+        Number(video.currentTime);
 
     const duration =
-        Number(
-            video.duration
-        );
-
+        Number(video.duration);
 
     diagnostic.innerHTML = `
 
-        <strong>
-            🟢 着手フレーム診断
-        </strong>
+        <strong>🟢 着手フレーム診断</strong>
 
         <br>
 
-        現在フレーム：
+        現在解析フレーム：
         <strong>
             ${frameCount}
         </strong>
 
         <br>
 
-        動画時間：
+        現在動画時間：
         <strong>
             ${
-                Number.isFinite(
-                    currentTime
-                )
+                Number.isFinite(currentTime)
                     ? currentTime.toFixed(3)
                     : "-"
             }
@@ -181,9 +108,7 @@ function updatePoseDiagnostic(
 
         動画全体：
         ${
-            Number.isFinite(
-                duration
-            )
+            Number.isFinite(duration)
                 ? duration.toFixed(3)
                 : "-"
         }
@@ -197,7 +122,179 @@ function updatePoseDiagnostic(
         </strong>
         フレーム
 
+        <hr>
+
+        <div id="selectedHandDiagnostic">
+            選択着手フレーム：
+            まだ指定されていません
+        </div>
+
     `;
+}
+
+
+// ============================================================
+// 選択された着手フレームの時間を表示
+//
+// score.jsから呼び出せる
+// window.showSelectedHandFrameTime(フレーム番号)
+// ============================================================
+
+function showSelectedHandFrameTime(
+    selectedFrame
+) {
+
+    const diagnostic =
+        getPoseDiagnosticElement();
+
+    const frameNumber =
+        Number(selectedFrame);
+
+
+    if (
+        !Number.isFinite(frameNumber)
+    ) {
+
+        return;
+
+    }
+
+
+    // --------------------------------------------------------
+    // 該当フレームを検索
+    // --------------------------------------------------------
+
+    const targetFrame =
+        poseFrames.find(
+            frame =>
+                Number(frame.frame) ===
+                frameNumber
+        );
+
+
+    const targetElement =
+        document.getElementById(
+            "selectedHandDiagnostic"
+        );
+
+
+    if (!targetElement) {
+
+        return;
+
+    }
+
+
+    // --------------------------------------------------------
+    // 該当フレームが見つからない
+    // --------------------------------------------------------
+
+    if (!targetFrame) {
+
+        targetElement.innerHTML = `
+
+            <strong>
+                選択着手フレーム：
+                ${frameNumber}
+            </strong>
+
+            <br>
+
+            着手動画時間：
+            <span style="color:#c62828;">
+                取得できませんでした
+            </span>
+
+        `;
+
+        return;
+
+    }
+
+
+    const time =
+        Number(
+            targetFrame.time
+        );
+
+
+    targetElement.innerHTML = `
+
+        <strong>
+            選択着手フレーム：
+            ${frameNumber}
+        </strong>
+
+        <br>
+
+        着手動画時間：
+        <strong style="color:#1565c0;">
+            ${
+                Number.isFinite(time)
+                    ? time.toFixed(3)
+                    : "-"
+            }
+            秒
+        </strong>
+
+        <br>
+
+        この時間の動画を確認すると、
+        実際の着手瞬間と
+        比較できます。
+
+    `;
+
+}
+
+
+// ============================================================
+// 特定フレームの情報を取得
+// ============================================================
+
+function getPoseFrameInfo(
+    frameNumber
+) {
+
+    const number =
+        Number(frameNumber);
+
+    if (
+        !Number.isFinite(number)
+    ) {
+
+        return null;
+
+    }
+
+
+    const frame =
+        poseFrames.find(
+            item =>
+                Number(item.frame) ===
+                number
+        );
+
+
+    if (!frame) {
+
+        return null;
+
+    }
+
+
+    return {
+
+        frame:
+            frame.frame,
+
+        time:
+            frame.time,
+
+        landmarks:
+            frame.landmarks
+
+    };
 
 }
 
@@ -243,7 +340,6 @@ async function startPose(
 
 
         pose.onResults(
-
             (results) => {
 
                 onResults(
@@ -254,24 +350,17 @@ async function startPose(
                 );
 
             }
-
         );
 
     }
 
-
-    // --------------------------------------------------------
-    // 診断表示を作成
-    // --------------------------------------------------------
 
     getPoseDiagnosticElement();
 
 
     async function analyze() {
 
-        if (
-            video.ended
-        ) {
+        if (video.ended) {
 
             updatePoseDiagnostic(
                 video
@@ -282,14 +371,11 @@ async function startPose(
         }
 
 
-        if (
-            video.paused
-        ) {
+        if (video.paused) {
 
             updatePoseDiagnostic(
                 video
             );
-
 
             requestAnimationFrame(
                 analyze
@@ -336,22 +422,14 @@ function onResults(
 ) {
 
     ctx.clearRect(
-
         0,
         0,
         canvas.width,
         canvas.height
-
     );
 
 
-    // --------------------------------------------------------
-    // 骨格が取得できなかった場合
-    // --------------------------------------------------------
-
-    if (
-        !results.poseLandmarks
-    ) {
+    if (!results.poseLandmarks) {
 
         updatePoseDiagnostic(
             video
@@ -362,9 +440,9 @@ function onResults(
     }
 
 
-    // ========================================================
+    // --------------------------------------------------------
     // 骨格描画
-    // ========================================================
+    // --------------------------------------------------------
 
     drawConnectors(
 
@@ -406,38 +484,22 @@ function onResults(
     );
 
 
-    // ========================================================
+    // --------------------------------------------------------
     // 骨格データ保存
-    // ========================================================
+    // --------------------------------------------------------
 
     poseFrames.push({
 
-        // ----------------------------------------------------
-        // 解析フレーム番号
-        // ----------------------------------------------------
-
         frame:
             frameCount,
-
-
-        // ----------------------------------------------------
-        // 動画時間
-        // ----------------------------------------------------
 
         time:
             Number(
                 video.currentTime
             ),
 
-
-        // ----------------------------------------------------
-        // ランドマーク
-        // ----------------------------------------------------
-
         landmarks:
-
             results.poseLandmarks.map(
-
                 landmark => ({
 
                     x:
@@ -453,22 +515,13 @@ function onResults(
                         landmark.visibility
 
                 })
-
             )
 
     });
 
 
-    // --------------------------------------------------------
-    // フレーム番号を1つ進める
-    // --------------------------------------------------------
-
     frameCount++;
 
-
-    // --------------------------------------------------------
-    // 診断表示更新
-    // --------------------------------------------------------
 
     updatePoseDiagnostic(
         video
@@ -498,27 +551,6 @@ function clearPoseFrames() {
 
     frameCount = 0;
 
-
-    const diagnostic =
-        document.getElementById(
-            "poseDiagnostic"
-        );
-
-
-    if (diagnostic) {
-
-        diagnostic.innerHTML = `
-            🟢 着手フレーム診断
-            <br>
-            現在フレーム：0
-            <br>
-            動画時間：-
-            <br>
-            取得済み：0フレーム
-        `;
-
-    }
-
 }
 
 
@@ -536,3 +568,11 @@ window.getPoseFrames =
 
 window.clearPoseFrames =
     clearPoseFrames;
+
+
+window.getPoseFrameInfo =
+    getPoseFrameInfo;
+
+
+window.showSelectedHandFrameTime =
+    showSelectedHandFrameTime;
