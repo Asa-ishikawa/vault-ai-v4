@@ -878,6 +878,17 @@ function calculateHipScore(
 // ・他4項目の採点ロジックは変更しない
 // ============================================================
 
+// ============================================================
+// ③ 着手位置
+//
+// 着手候補の「連続性」を利用した判定
+//
+// 今回の追加機能
+// ・選択着手フレームを確定した直後に
+//   pose.js の診断表示へ渡す
+// ・選択着手フレームに対応する動画時間を表示
+// ============================================================
+
 function calculateHandScore(
     frames,
     phase,
@@ -885,7 +896,7 @@ function calculateHandScore(
 ) {
 
     // --------------------------------------------------------
-    // フレームが取得できない場合
+    // フレームデータ確認
     // --------------------------------------------------------
 
     if (
@@ -922,7 +933,10 @@ function calculateHandScore(
     // --------------------------------------------------------
 
     const candidates =
-        getHandCandidates(phase);
+        getHandCandidates(
+            phase
+        );
+
 
     const candidateCount =
         candidates.length;
@@ -961,10 +975,12 @@ function calculateHandScore(
         const candidate =
             candidates[i];
 
+
         const frameNumber =
             getCandidateFrame(
                 candidate
             );
+
 
         const likelihood =
             getCandidateLikelihood(
@@ -1005,14 +1021,17 @@ function calculateHandScore(
             );
 
 
-        // 同じフレームが複数ある場合、
+        // 同じフレームが複数ある場合
         // likelihoodが高い方を残す
+
         if (
             !existing
         ) {
 
             candidateMap.set(
+
                 frame,
+
                 {
 
                     frame:
@@ -1115,6 +1134,19 @@ function calculateHandScore(
             );
 
 
+        // 診断表示
+        if (
+            typeof window.showSelectedHandFrameTime ===
+            "function"
+        ) {
+
+            window.showSelectedHandFrameTime(
+                fallbackFrame
+            );
+
+        }
+
+
         if (
             !Number.isFinite(
                 fallbackMeasured
@@ -1181,16 +1213,8 @@ function calculateHandScore(
     // --------------------------------------------------------
     // 連続候補グループを作る
     //
-    // 例
-    //
-    // 10,11,12,13,14
-    //
-    // → 1つの連続グループ
-    //
-    // 20,21
-    //
-    // → 別のグループ
-    //
+    // 1フレーム飛んでも
+    // 同じグループとして扱う
     // --------------------------------------------------------
 
     const groups = [];
@@ -1232,8 +1256,6 @@ function calculateHandScore(
             previous.frame;
 
 
-        // 1フレーム飛んでも
-        // 同じ動作候補として扱う
         if (
             gap <= 2
         ) {
@@ -1249,6 +1271,7 @@ function calculateHandScore(
             groups.push(
                 currentGroup
             );
+
 
             currentGroup = [
                 candidate
@@ -1271,20 +1294,12 @@ function calculateHandScore(
 
 
     // --------------------------------------------------------
-    // 各グループを評価
-    //
-    // 評価要素
-    //
-    // ① 連続フレーム数
-    // ② likelihood
-    // ③ phase.jsの選択フレームに近いか
-    //
-    // 「長く続く＋着手らしい＋選択フレームに近い」
-    // グループを優先
+    // 最良グループを選択
     // --------------------------------------------------------
 
     let bestGroup =
         null;
+
 
     let bestGroupScore =
         -Infinity;
@@ -1312,6 +1327,7 @@ function calculateHandScore(
         const firstFrame =
             group[0].frame;
 
+
         const lastFrame =
             group[
                 group.length - 1
@@ -1326,15 +1342,19 @@ function calculateHandScore(
 
 
         // ----------------------------------------------------
-        // グループ内の最大likelihood
+        // 最大likelihood
         // ----------------------------------------------------
 
         let maxLikelihood =
             NaN;
 
-        let totalLikelihood = 0;
 
-        let likelihoodCount = 0;
+        let totalLikelihood =
+            0;
+
+
+        let likelihoodCount =
+            0;
 
 
         for (
@@ -1370,6 +1390,7 @@ function calculateHandScore(
                 totalLikelihood +=
                     likelihood;
 
+
                 likelihoodCount++;
 
             }
@@ -1386,13 +1407,6 @@ function calculateHandScore(
 
         // ----------------------------------------------------
         // 連続性スコア
-        //
-        // 1フレーム → 1
-        // 2フレーム → 2
-        // 3フレーム → 3
-        // ...
-        //
-        // 長く続く候補を優先
         // ----------------------------------------------------
 
         const continuityScore =
@@ -1400,7 +1414,7 @@ function calculateHandScore(
 
 
         // ----------------------------------------------------
-        // phase.jsが選んだフレームとの距離
+        // phase.jsの着手フレームとの距離
         // ----------------------------------------------------
 
         const distanceFromBase =
@@ -1410,10 +1424,6 @@ function calculateHandScore(
             );
 
 
-        // ----------------------------------------------------
-        // 距離ペナルティ
-        // ----------------------------------------------------
-
         const distancePenalty =
             distanceFromBase *
             0.20;
@@ -1421,8 +1431,6 @@ function calculateHandScore(
 
         // ----------------------------------------------------
         // グループ評価
-        //
-        // 連続性を強めに評価する
         // ----------------------------------------------------
 
         const groupScore =
@@ -1438,6 +1446,7 @@ function calculateHandScore(
 
             bestGroupScore =
                 groupScore;
+
 
             bestGroup = {
 
@@ -1501,6 +1510,19 @@ function calculateHandScore(
             getHandMeasuredValue(
                 fallback
             );
+
+
+        // 診断表示
+        if (
+            typeof window.showSelectedHandFrameTime ===
+            "function"
+        ) {
+
+            window.showSelectedHandFrameTime(
+                fallbackFrame
+            );
+
+        }
 
 
         if (
@@ -1575,14 +1597,7 @@ function calculateHandScore(
 
 
     // --------------------------------------------------------
-    // グループの中央フレーム
-    //
-    // ただし、
-    // phase.jsが選んだbaseFrameが
-    // グループ内に入っている場合は、
-    // baseFrameを優先する
-    //
-    // これにより大きくフレームがズレるのを防ぐ
+    // グループ中央フレーム
     // --------------------------------------------------------
 
     let selectedFrame =
@@ -1590,6 +1605,11 @@ function calculateHandScore(
             bestGroup.centerFrame
         );
 
+
+    // --------------------------------------------------------
+    // phase.jsのbaseFrameが
+    // グループ内にあればbaseFrameを優先
+    // --------------------------------------------------------
 
     const baseIsInsideGroup =
         selectedGroup.some(
@@ -1615,7 +1635,7 @@ function calculateHandScore(
 
 
     // --------------------------------------------------------
-    // 念のため範囲内に収める
+    // フレーム範囲内に収める
     // --------------------------------------------------------
 
     selectedFrame =
@@ -1626,6 +1646,33 @@ function calculateHandScore(
                 selectedFrame
             )
         );
+
+
+    // ========================================================
+    // ★今回追加
+    //
+    // 最終的に選ばれた着手フレームを
+    // pose.jsへ渡す
+    //
+    // ここで初めて
+    //
+    // 選択着手フレーム：13
+    // ↓
+    // 着手動画時間：○○○秒
+    //
+    // が表示される
+    // ========================================================
+
+    if (
+        typeof window.showSelectedHandFrameTime ===
+        "function"
+    ) {
+
+        window.showSelectedHandFrameTime(
+            selectedFrame
+        );
+
+    }
 
 
     // --------------------------------------------------------
@@ -1658,6 +1705,7 @@ function calculateHandScore(
 
         let nearestCandidate =
             null;
+
 
         let nearestDistance =
             Infinity;
@@ -1712,6 +1760,7 @@ function calculateHandScore(
                 nearestDistance =
                     distance;
 
+
                 nearestCandidate = {
 
                     frame:
@@ -1737,8 +1786,26 @@ function calculateHandScore(
             selectedFrame =
                 nearestCandidate.frame;
 
+
             measured =
                 nearestCandidate.measured;
+
+
+            // ----------------------------------------------
+            // ★実際に採用したフレームへ
+            // 診断表示を更新
+            // ----------------------------------------------
+
+            if (
+                typeof window.showSelectedHandFrameTime ===
+                "function"
+            ) {
+
+                window.showSelectedHandFrameTime(
+                    selectedFrame
+                );
+
+            }
 
         }
 
@@ -1786,7 +1853,7 @@ function calculateHandScore(
 
 
     // --------------------------------------------------------
-    // 選択フレームのlikelihoodを取得
+    // 選択フレームのlikelihood
     // --------------------------------------------------------
 
     let selectedLikelihood =
@@ -1816,7 +1883,6 @@ function calculateHandScore(
 
     // --------------------------------------------------------
     // 選択フレームにlikelihoodがない場合
-    // グループ最大値を使用
     // --------------------------------------------------------
 
     if (
@@ -1833,15 +1899,6 @@ function calculateHandScore(
 
     // --------------------------------------------------------
     // 着手評価
-    //
-    // likelihoodがある場合
-    //
-    // 9以上 → 2点
-    // 6以上 → 1点
-    // 6未満 → 0点
-    //
-    // likelihoodがない場合は
-    // 既存の実測値による評価を使用
     // --------------------------------------------------------
 
     let score = 0;
@@ -1898,7 +1955,7 @@ function calculateHandScore(
 
 
     // --------------------------------------------------------
-    // コメント
+    // 評価コメント
     // --------------------------------------------------------
 
     let text = "";
@@ -1931,88 +1988,7 @@ function calculateHandScore(
 
 
     // --------------------------------------------------------
-    // デバッグ情報
-    // --------------------------------------------------------
-
-    console.log(
-        "========== 着手判定 Ver6.5 =========="
-    );
-
-    console.log(
-        "phase着手フレーム:",
-        baseFrame
-    );
-
-    console.log(
-        "着手候補数:",
-        candidateCount
-    );
-
-    console.log(
-        "候補グループ数:",
-        groups.length
-    );
-
-    console.log(
-        "選択グループ:",
-        bestGroup.firstFrame,
-        "～",
-        bestGroup.lastFrame
-    );
-
-    console.log(
-        "選択グループ連続数:",
-        selectedGroup.length
-    );
-
-    console.log(
-        "グループ中央フレーム:",
-        Math.round(
-            bestGroup.centerFrame
-        )
-    );
-
-    console.log(
-        "選択着手フレーム:",
-        selectedFrame
-    );
-
-    console.log(
-        "着手実測値:",
-        measured
-    );
-
-    console.log(
-        "選択likelihood:",
-        Number.isFinite(
-            selectedLikelihood
-        )
-            ? selectedLikelihood
-            : null
-    );
-
-    console.log(
-        "平均likelihood:",
-        Number.isFinite(
-            bestGroup.averageLikelihood
-        )
-            ? bestGroup.averageLikelihood
-            : null
-    );
-
-    console.log(
-        "連続性スコア:",
-        selectedGroup.length
-    );
-
-    console.log(
-        "着手点:",
-        score
-    );
-
-
-    // --------------------------------------------------------
-    // 結果を返す
+    // 結果
     // --------------------------------------------------------
 
     return {
