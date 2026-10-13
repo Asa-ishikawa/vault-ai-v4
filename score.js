@@ -1811,6 +1811,11 @@ function calculateHandScore(
 
     }
 
+// 選択フレームを最終確定
+selectedFrameData = getFrame(
+    frames,
+    selectedFrame
+);
 
     // --------------------------------------------------------
     // 実測値が取得できない場合
@@ -3995,6 +4000,112 @@ function round3(value) {
     );
 }
 
+// ========================================================
+// 着手位置の評価
+// 評価範囲は動画に合わせて設定する
+// 座標は画像全体を 0～1 とした正規化座標
+// ========================================================
+
+function evaluateHandPlacement(frame) {
+    const landmarks = getLandmarks(frame);
+
+    if (!landmarks || landmarks.length < 17) {
+        return {
+            score: 0,
+            text: "手の位置を検出できません。"
+        };
+    }
+
+    const left = landmarks[15];
+    const right = landmarks[16];
+
+    if (
+        !left ||
+        !right ||
+        !Number.isFinite(left.x) ||
+        !Number.isFinite(left.y) ||
+        !Number.isFinite(right.x) ||
+        !Number.isFinite(right.y)
+    ) {
+        return {
+            score: 0,
+            text: "手の位置を検出できません。"
+        };
+    }
+
+    // 左右の手首の中心
+    const x = (left.x + right.x) / 2;
+    const y = (left.y + right.y) / 2;
+
+    // 評価範囲が設定されていなければ採点しない
+    const target = window.HAND_TARGET_ZONE;
+    const outer = window.HAND_OUTER_ZONE;
+
+    if (!target || !outer) {
+        return {
+            score: 0,
+            x,
+            y,
+            text: "着手位置の評価範囲を設定してください。"
+        };
+    }
+
+    function inside(point, zone) {
+        return (
+            point.x >= zone.xMin &&
+            point.x <= zone.xMax &&
+            point.y >= zone.yMin &&
+            point.y <= zone.yMax
+        );
+    }
+
+    const point = { x, y };
+
+    if (inside(point, target)) {
+        return {
+            score: 2,
+            x,
+            y,
+            text: "設定した着手位置の範囲内です。"
+        };
+    }
+
+    if (inside(point, outer)) {
+        return {
+            score: 1,
+            x,
+            y,
+            text: "着手位置を確認しましょう。"
+        };
+    }
+
+    return {
+        score: 0,
+        x,
+        y,
+        text: "設定した着手位置の範囲外です。"
+    };
+}
+
+// ========================================================
+// 着手位置の評価範囲
+// ※以下の数値は仮の値です。
+// 動画上の跳び箱と、望ましい着手範囲に合わせて調整する。
+// ========================================================
+
+window.HAND_TARGET_ZONE = {
+    xMin: 0.40,
+    xMax: 0.60,
+    yMin: 0.30,
+    yMax: 0.50
+};
+
+window.HAND_OUTER_ZONE = {
+    xMin: 0.35,
+    xMax: 0.65,
+    yMin: 0.25,
+    yMax: 0.55
+};
 
 // ============================================================
 // 公開
@@ -4019,3 +4130,4 @@ console.log(
 console.log(
     "================================"
 );
+
