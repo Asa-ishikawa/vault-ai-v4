@@ -1675,41 +1675,29 @@ function calculateHandScore(
     }
 
 
+   
     // --------------------------------------------------------
     // 選択フレームから実測値を取得
     // --------------------------------------------------------
 
-    let selectedFrameData =
-        getFrame(
-            frames,
-            selectedFrame
-        );
+    let selectedFrameData = getFrame(
+        frames,
+        selectedFrame
+    );
 
-
-    let measured =
-        getHandMeasuredValue(
-            selectedFrameData
-        );
-
+    let measured = getHandMeasuredValue(
+        selectedFrameData
+    );
 
     // --------------------------------------------------------
-    // 中央フレームに値がない場合
+    // 中央フレームに値がない場合は、
     // グループ内から最も近い有効フレームを探す
     // --------------------------------------------------------
 
-    if (
-        !Number.isFinite(
-            measured
-        )
-    ) {
+    if (!Number.isFinite(measured)) {
 
-        let nearestCandidate =
-            null;
-
-
-        let nearestDistance =
-            Infinity;
-
+        let nearestCandidate = null;
+        let nearestDistance = Infinity;
 
         for (
             let i = 0;
@@ -1717,153 +1705,127 @@ function calculateHandScore(
             i++
         ) {
 
-            const candidate =
-                selectedGroup[i];
+            const candidate = selectedGroup[i];
 
-
-            const frameData =
-                getFrame(
-                    frames,
-                    candidate.frame
-                );
-
+            const frameData = getFrame(
+                frames,
+                candidate.frame
+            );
 
             const candidateMeasured =
-                getHandMeasuredValue(
-                    frameData
-                );
+                getHandMeasuredValue(frameData);
 
-
-            if (
-                !Number.isFinite(
-                    candidateMeasured
-                )
-            ) {
-
+            if (!Number.isFinite(candidateMeasured)) {
                 continue;
-
             }
 
+            const distance = Math.abs(
+                candidate.frame - selectedFrame
+            );
 
-            const distance =
-                Math.abs(
-                    candidate.frame -
-                    selectedFrame
-                );
+            if (distance < nearestDistance) {
 
-
-            if (
-                distance <
-                nearestDistance
-            ) {
-
-                nearestDistance =
-                    distance;
-
+                nearestDistance = distance;
 
                 nearestCandidate = {
-
-                    frame:
-                        candidate.frame,
-
-                    measured:
-                        candidateMeasured,
-
-                    likelihood:
-                        candidate.likelihood
-
+                    frame: candidate.frame,
+                    measured: candidateMeasured,
+                    likelihood: candidate.likelihood
                 };
 
             }
 
         }
 
+        if (nearestCandidate) {
 
-        if (
-            nearestCandidate
-        ) {
-
-            selectedFrame =
-                nearestCandidate.frame;
-
-
-            measured =
-                nearestCandidate.measured;
-
-
-            // ----------------------------------------------
-            // ★実際に採用したフレームへ
-            // 診断表示を更新
-            // ----------------------------------------------
+            selectedFrame = nearestCandidate.frame;
+            measured = nearestCandidate.measured;
 
             if (
                 typeof window.showSelectedHandFrameTime ===
                 "function"
             ) {
-
                 window.showSelectedHandFrameTime(
                     selectedFrame
                 );
-
             }
 
         }
 
     }
 
-// 選択フレームを最終確定
-selectedFrameData = getFrame(
-    frames,
-    selectedFrame
-);
+    // --------------------------------------------------------
+    // 最終的に採用したフレームを取得
+    // --------------------------------------------------------
+
+    selectedFrameData = getFrame(
+        frames,
+        selectedFrame
+    );
+
+    // --------------------------------------------------------
+    // 手首の位置を取得
+    // --------------------------------------------------------
+
+    const landmarks = getLandmarks(
+        selectedFrameData
+    );
+
+    let handPlacement = {
+        score: 0,
+        x: null,
+        y: null,
+        text: "手の位置を確認できません。"
+    };
+
+    if (
+        typeof evaluateHandPlacement === "function"
+    ) {
+        handPlacement = evaluateHandPlacement(
+            selectedFrameData
+        );
+    }
+
+    // --------------------------------------------------------
+    // 選択フレームの時間を表示
+    // --------------------------------------------------------
+
+    if (
+        typeof window.showSelectedHandFrameTime ===
+        "function"
+    ) {
+        window.showSelectedHandFrameTime(
+            selectedFrame
+        );
+    }
 
     // --------------------------------------------------------
     // 実測値が取得できない場合
     // --------------------------------------------------------
 
-    if (
-        !Number.isFinite(
-            measured
-        )
-    ) {
+    if (!Number.isFinite(measured)) {
 
         return {
-
             score: 0,
-
             value: null,
-
-            measured:
-                "取得できませんでした",
-
-            text:
-                "着手位置を確認しましょう。",
-
-            candidateCount:
-                candidateCount,
-
-            selectedFrame:
-                selectedFrame,
-
-            likelihood:
-                Number.isFinite(
-                    bestGroup.maxLikelihood
-                )
-                    ? bestGroup.maxLikelihood
-                    : null
-
+            measured: "取得できませんでした",
+            text: "着手位置を確認しましょう。",
+            candidateCount: candidateCount,
+            selectedFrame: selectedFrame,
+            likelihood: null,
+            handX: handPlacement.x ?? null,
+            handY: handPlacement.y ?? null,
+            placementText: handPlacement.text
         };
 
     }
-
 
     // --------------------------------------------------------
     // 選択フレームのlikelihood
     // --------------------------------------------------------
 
-    let selectedLikelihood =
-        NaN;
-
+    let selectedLikelihood = NaN;
 
     for (
         let i = 0;
@@ -1872,8 +1834,7 @@ selectedFrameData = getFrame(
     ) {
 
         if (
-            selectedGroup[i].frame ===
-            selectedFrame
+            selectedGroup[i].frame === selectedFrame
         ) {
 
             selectedLikelihood =
@@ -1885,149 +1846,29 @@ selectedFrameData = getFrame(
 
     }
 
-
-    // --------------------------------------------------------
-    // 選択フレームにlikelihoodがない場合
-    // --------------------------------------------------------
-
-    if (
-        !Number.isFinite(
-            selectedLikelihood
-        )
-    ) {
-
-        selectedLikelihood =
-            bestGroup.maxLikelihood;
-
+    if (!Number.isFinite(selectedLikelihood)) {
+        selectedLikelihood = bestGroup.maxLikelihood;
     }
 
-
     // --------------------------------------------------------
-    // 着手評価
-    // --------------------------------------------------------
-
-    let score = 0;
-
-
-    if (
-        Number.isFinite(
-            selectedLikelihood
-        )
-    ) {
-
-        if (
-            selectedLikelihood >= 9
-        ) {
-
-            score = 2;
-
-        }
-
-        else if (
-            selectedLikelihood >= 6
-        ) {
-
-            score = 1;
-
-        }
-
-        else {
-
-            score = 0;
-
-        }
-
-    }
-
-    else {
-
-        if (
-            measured >= 0.05 &&
-            measured <= 0.30
-        ) {
-
-            score = 1;
-
-        }
-
-        else {
-
-            score = 0;
-
-        }
-
-    }
-
-
-    // --------------------------------------------------------
-    // 評価コメント
-    // --------------------------------------------------------
-
-    let text = "";
-
-
-    if (
-        score === 2
-    ) {
-
-        text =
-            "着手タイミング・着手位置が安定しています。";
-
-    }
-
-    else if (
-        score === 1
-    ) {
-
-        text =
-            "着手位置を確認しましょう。手をつく位置を安定させると、さらによくなります。";
-
-    }
-
-    else {
-
-        text =
-            "着手位置を確認しましょう。";
-
-    }
-
-
-    // --------------------------------------------------------
-    // 結果
+    // 着手位置の評価結果を返す
     // --------------------------------------------------------
 
     return {
-
-        score:
-            score,
-
-        value:
-            round3(
-                measured
-            ),
-
-        measured:
-            round3(
-                measured
-            ),
-
-        text:
-            text,
-
-        candidateCount:
-            candidateCount,
-
-        selectedFrame:
-            selectedFrame,
-
-        likelihood:
-            Number.isFinite(
-                selectedLikelihood
-            )
-                ? selectedLikelihood
-                : null
-
+        score: handPlacement.score,
+        value: round3(measured),
+        measured: round3(measured),
+        text: handPlacement.text,
+        candidateCount: candidateCount,
+        selectedFrame: selectedFrame,
+        likelihood: Number.isFinite(selectedLikelihood)
+            ? selectedLikelihood
+            : null,
+        handX: handPlacement.x ?? null,
+        handY: handPlacement.y ?? null,
+        placementText: handPlacement.text
     };
+    
 
 }
 
