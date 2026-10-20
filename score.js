@@ -3846,14 +3846,13 @@ function round3(value) {
 // 評価範囲は動画に合わせて設定する
 // 座標は画像全体を 0～1 とした正規化座標
 // ========================================================
-
 function evaluateHandPlacement(frame) {
     const landmarks = getLandmarks(frame);
 
     if (!landmarks || landmarks.length < 17) {
         return {
             score: 0,
-            text: "手の位置を検出できません。"
+            text: "原因：骨格データを取得できません。"
         };
     }
 
@@ -3870,7 +3869,7 @@ function evaluateHandPlacement(frame) {
     ) {
         return {
             score: 0,
-            text: "手の位置を検出できません。"
+            text: "原因：左右の手首を検出できません。"
         };
     }
 
@@ -3878,22 +3877,15 @@ function evaluateHandPlacement(frame) {
     const x = (left.x + right.x) / 2;
     const y = (left.y + right.y) / 2;
 
-    // 評価範囲が設定されていなければ採点しない
     const target = window.HAND_TARGET_ZONE;
     const outer = window.HAND_OUTER_ZONE;
-    console.log("着手位置の確認", {
-    x: x,
-    y: y,
-    target: target,
-    outer: outer
-});
 
     if (!target || !outer) {
         return {
             score: 0,
             x,
             y,
-            text: "着手位置の評価範囲を設定してください。"
+            text: "原因：着手位置の評価範囲が未設定です。"
         };
     }
 
@@ -3913,7 +3905,7 @@ function evaluateHandPlacement(frame) {
             score: 2,
             x,
             y,
-            text: "設定した着手位置の範囲内です。"
+            text: `着手位置：目標範囲内（2点） x=${x.toFixed(3)}, y=${y.toFixed(3)}`
         };
     }
 
@@ -3922,7 +3914,7 @@ function evaluateHandPlacement(frame) {
             score: 1,
             x,
             y,
-            text: "着手位置を確認しましょう。"
+            text: `着手位置：目標範囲外（1点） x=${x.toFixed(3)}, y=${y.toFixed(3)}`
         };
     }
 
@@ -3930,29 +3922,9 @@ function evaluateHandPlacement(frame) {
         score: 0,
         x,
         y,
-        text: "設定した着手位置の範囲外です。"
+        text: `着手位置：設定範囲外（0点） x=${x.toFixed(3)}, y=${y.toFixed(3)}`
     };
 }
-
-// ========================================================
-// 着手位置の評価範囲
-// ※以下の数値は仮の値です。
-// 動画上の跳び箱と、望ましい着手範囲に合わせて調整する。
-// ========================================================
-
-window.HAND_TARGET_ZONE = {
-    xMin: 0.40,
-    xMax: 0.60,
-    yMin: 0.30,
-    yMax: 0.50
-};
-
-window.HAND_OUTER_ZONE = {
-    xMin: 0.35,
-    xMax: 0.65,
-    yMin: 0.25,
-    yMax: 0.55
-};
 
 // ============================================================
 // 公開
