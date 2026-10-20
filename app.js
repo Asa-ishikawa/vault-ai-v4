@@ -555,14 +555,30 @@ videoFile.addEventListener(
     "change",
     () => {
 
-        const file =
-            videoFile.files[0];
+       const file = videoFile.files[0];
 
-        if (!file) {
+if (!file) {
+    return;
+}
 
-            return;
+// ファイル名から動画の種類を判定
+const fileName = file.name;
 
-        }
+let videoType = "unknown";
+
+if (fileName.includes("成功①")) {
+    videoType = "成功①";
+} else if (fileName.includes("成功②")) {
+    videoType = "成功②";
+} else if (fileName.includes("普通")) {
+    videoType = "普通";
+}
+
+// 動画の種類を保存
+window.currentVaultVideoType = videoType;
+
+console.log("選択した動画:", fileName);
+console.log("判別した動画種類:", videoType);
 
         video.src =
             URL.createObjectURL(file);
