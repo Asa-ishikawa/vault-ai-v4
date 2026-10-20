@@ -3881,6 +3881,12 @@ function evaluateHandPlacement(frame) {
     // 評価範囲が設定されていなければ採点しない
     const target = window.HAND_TARGET_ZONE;
     const outer = window.HAND_OUTER_ZONE;
+    console.log("着手位置の確認", {
+    x: x,
+    y: y,
+    target: target,
+    outer: outer
+});
 
     if (!target || !outer) {
         return {
