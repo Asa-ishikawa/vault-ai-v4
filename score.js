@@ -1801,76 +1801,59 @@ function calculateHandScore(
     }
 
     // --------------------------------------------------------
-    // 実測値が取得できない場合
-    // --------------------------------------------------------
+// 選択フレームのlikelihood
+// --------------------------------------------------------
 
-    if (!Number.isFinite(measured)) {
+let selectedLikelihood = NaN;
 
-        return {
-            score: 0,
-            value: null,
-            measured: "取得できませんでした",
-            text: "着手位置を確認しましょう。",
-            candidateCount: candidateCount,
-            selectedFrame: selectedFrame,
-            likelihood: null,
-            handX: handPlacement.x ?? null,
-            handY: handPlacement.y ?? null,
-            placementText: handPlacement.text
-        };
-
-    }
-
-    // --------------------------------------------------------
-    // 選択フレームのlikelihood
-    // --------------------------------------------------------
-
-    let selectedLikelihood = NaN;
-
-    for (
-        let i = 0;
-        i < selectedGroup.length;
-        i++
+for (
+    let i = 0;
+    i < selectedGroup.length;
+    i++
+) {
+    if (
+        selectedGroup[i].frame === selectedFrame
     ) {
+        selectedLikelihood =
+            selectedGroup[i].likelihood;
 
-        if (
-            selectedGroup[i].frame === selectedFrame
-        ) {
-
-            selectedLikelihood =
-                selectedGroup[i].likelihood;
-
-            break;
-
-        }
-
+        break;
     }
-
-    if (!Number.isFinite(selectedLikelihood)) {
-        selectedLikelihood = bestGroup.maxLikelihood;
-    }
-
-    // --------------------------------------------------------
-    // 着手位置の評価結果を返す
-    // --------------------------------------------------------
-
-    return {
-        score: handPlacement.score,
-        value: round3(measured),
-        measured: round3(measured),
-        text: handPlacement.text,
-        candidateCount: candidateCount,
-        selectedFrame: selectedFrame,
-        likelihood: Number.isFinite(selectedLikelihood)
-            ? selectedLikelihood
-            : null,
-        handX: handPlacement.x ?? null,
-        handY: handPlacement.y ?? null,
-        placementText: handPlacement.text
-    };
-    
-
 }
+
+if (!Number.isFinite(selectedLikelihood)) {
+    selectedLikelihood = bestGroup.maxLikelihood;
+}
+
+// --------------------------------------------------------
+// 着手位置の評価結果を返す
+// --------------------------------------------------------
+
+return {
+    score: handPlacement.score,
+
+    value: Number.isFinite(measured)
+        ? round3(measured)
+        : null,
+
+    measured: Number.isFinite(measured)
+        ? round3(measured)
+        : "未測定",
+
+    text: handPlacement.text,
+    candidateCount: candidateCount,
+    selectedFrame: selectedFrame,
+
+    likelihood: Number.isFinite(selectedLikelihood)
+        ? selectedLikelihood
+        : null,
+
+    handX: handPlacement.x ?? null,
+    handY: handPlacement.y ?? null,
+    placementText: handPlacement.text
+};
+
+    
 
 // ============================================================
 // ④ 両足踏切
@@ -3950,3 +3933,4 @@ console.log(
     "================================"
 );
 
+}
