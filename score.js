@@ -3934,3 +3934,25 @@ console.log(
 );
 
 }
+
+// ========================================================
+// フレーム番号を安全に取得する関数
+// ========================================================
+
+function safeFrameIndex(value, length) {
+
+    if (!Number.isFinite(Number(value))) {
+        return 0;
+    }
+
+    if (!Number.isFinite(length) || length <= 0) {
+        return 0;
+    }
+
+    const index = Math.round(Number(value));
+
+    return Math.max(
+        0,
+        Math.min(index, length - 1)
+    );
+}
