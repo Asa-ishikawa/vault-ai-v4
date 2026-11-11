@@ -1853,6 +1853,8 @@ return {
     placementText: handPlacement.text
 };
 
+}
+
     
 
 // ============================================================
@@ -3367,40 +3369,24 @@ function calculateLandingDifference(
     // --------------------------------------------------------
     // 着地時の足のばらつき
     // --------------------------------------------------------
-console.log(
-    "========== 着手実測値 診断 =========="
-);
-
-console.log(
-    "左手首X:",
-    leftWrist
-        ? leftWrist.x
-        : "なし"
-);
-
-console.log(
-    "右手首X:",
-    rightWrist
-        ? rightWrist.x
-        : "なし"
-);
-
-console.log(
-    "使用した手首X平均:",
-    values.reduce(
-        (a, b) => a + b,
-        0
-    ) /
-    values.length
-);
-
-    return (
+    const average =
         values.reduce(
             (a, b) => a + b,
             0
         ) /
-        values.length
+        values.length;
+
+    console.log(
+        "着地差の候補値:",
+        values
     );
+
+    console.log(
+        "着地差の平均:",
+        average
+    );
+
+    return average;
 }
 
 
@@ -3932,27 +3918,3 @@ console.log(
 console.log(
     "================================"
 );
-
-}
-
-// ========================================================
-// フレーム番号を安全に取得する関数
-// ========================================================
-
-function safeFrameIndex(value, length) {
-
-    if (!Number.isFinite(Number(value))) {
-        return 0;
-    }
-
-    if (!Number.isFinite(length) || length <= 0) {
-        return 0;
-    }
-
-    const index = Math.round(Number(value));
-
-    return Math.max(
-        0,
-        Math.min(index, length - 1)
-    );
-}
