@@ -188,6 +188,9 @@ if (detectBtn) {
             setStatus("必要なプログラムを確認しています...");
             checkRequiredFunctions();
 
+            document.getElementById("appDiagnostic").textContent =
+    "診断：必要なプログラムの確認が完了しました！";
+
             // 古いデータを消去
             setStatus("解析データを初期化しています...");
 
@@ -241,8 +244,12 @@ if (detectBtn) {
 
             // 骨格検出を初期化
             setStatus("AI骨格検出を初期化しています...");
+            document.getElementById("appDiagnostic").textContent =
+    "診断：Pose初期化を開始しました...";
 
             await startPose(video, canvas, ctx);
+            document.getElementById("appDiagnostic").textContent =
+    "診断：Pose初期化が完了しました！";
 
             if (analysisId !== currentAnalysisId) return;
 
