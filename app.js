@@ -216,26 +216,47 @@ if (detectBtn) {
             setStatus("動画データを読み込んでいます...");
 
             if (video.readyState < 2) {
-                await new Promise((resolve, reject) => {
-                    const onLoaded = () => {
-                        cleanup();
-                        resolve();
-                    };
+    setStatus("動画データを再読み込みしています...");
 
-                    const onError = () => {
-                        cleanup();
-                        reject(new Error("動画データを読み込めません。"));
-                    };
+    await new Promise((resolve, reject) => {
+        let completed = false;
 
-                    const cleanup = () => {
-                        video.removeEventListener("loadeddata", onLoaded);
-                        video.removeEventListener("error", onError);
-                    };
+        const finish = (error = null) => {
+            if (completed) return;
+            completed = true;
 
-                    video.addEventListener("loadeddata", onLoaded);
-                    video.addEventListener("error", onError);
-                });
-            }
+            clearTimeout(timer);
+
+            video.removeEventListener("loadeddata", onLoaded);
+            video.removeEventListener("canplay", onLoaded);
+            video.removeEventListener("error", onError);
+
+            if (error) reject(error);
+            else resolve();
+        };
+
+        const onLoaded = () => {
+            finish();
+        };
+
+        const onError = () => {
+            finish(new Error("動画データの読み込みに失敗しました。"));
+        };
+
+        const timer = setTimeout(() => {
+            finish(new Error("動画の読み込みが10秒以内に完了しませんでした。"));
+        }, 10000);
+
+        video.addEventListener("loadeddata", onLoaded);
+        video.addEventListener("canplay", onLoaded);
+        video.addEventListener("error", onError);
+
+        // すでに読み込みが完了している場合
+        if (video.readyState >= 2) {
+            finish();
+        }
+    });
+}
 
             if (analysisId !== currentAnalysisId) return;
 
