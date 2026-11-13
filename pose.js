@@ -1,13 +1,24 @@
 
-// ===============================
+// ============================================================
 // 跳び箱AI採点システム
-// pose.js Ver6.4 着手位置座標保存版
-// ===============================
+// pose.js Ver7.1
+// 完全置き換え版
+//
+// 改善点
+// ・動画終了時のPose処理完了を待つ
+// ・処理フレーム数と骨格取得数を分けて表示
+// ・非同期処理の重複を防止
+// ・既存app.jsとの互換性を維持
+// ============================================================
 
 let pose = null;
 let poseFrames = [];
 let frameCount = 0;
-
+let processedFrameCount = 0;
+let analysisToken = 0;
+let analysisPromise = Promise.resolve();
+let resolveAnalysis = null;
+let analysisRunning = false;
 
 // ============================================================
 // 診断表示
@@ -20,6 +31,7 @@ function getPoseDiagnosticElement() {
 
     element = document.createElement("div");
     element.id = "poseDiagnostic";
+
     element.style.cssText = `
         margin-top:10px;
         padding:10px;
@@ -29,12 +41,12 @@ function getPoseDiagnosticElement() {
         line-height:1.7;
     `;
 
-    const videoContainer = document.getElementById("videoContainer");
+    const container = document.getElementById("videoContainer");
 
-    if (videoContainer) {
-        videoContainer.parentElement.insertBefore(
+    if (container && container.parentElement) {
+        container.parentElement.insertBefore(
             element,
-            videoContainer.nextSibling
+            container.nextSibling
         );
     } else {
         document.body.appendChild(element);
@@ -43,44 +55,54 @@ function getPoseDiagnosticElement() {
     return element;
 }
 
-
 // ============================================================
-// 現在の解析状況を表示
+// 診断表示更新
 // ============================================================
 
 function updatePoseDiagnostic(video) {
     const diagnostic = getPoseDiagnosticElement();
+
     const currentTime = Number(video.currentTime);
     const duration = Number(video.duration);
 
     diagnostic.innerHTML = `
-        <strong>🟢 着手フレーム診断</strong>
-        <br>
-        現在解析フレーム：<strong>${frameCount}</strong>
-        <br>
-        現在動画時間：
-        <strong>${Number.isFinite(currentTime) ? currentTime.toFixed(3) : "-"} 秒</strong>
-        <br>
+        <strong>骨格検出診断 Ver7.1</strong><br>
+
+        処理フレーム数：
+        <strong>${processedFrameCount}</strong><br>
+
+        骨格取得フレーム数：
+        <strong>${poseFrames.length}</strong><br>
+
+        現在の動画時間：
+        <strong>
+            ${Number.isFinite(currentTime)
+                ? currentTime.toFixed(3)
+                : "-"} 秒
+        </strong><br>
+
         動画全体：
-        ${Number.isFinite(duration) ? duration.toFixed(3) : "-"} 秒
-        <br>
-        取得済み：<strong>${poseFrames.length}</strong> フレーム
+        ${Number.isFinite(duration)
+            ? duration.toFixed(3)
+            : "-"} 秒
+
         <hr>
+
         <div id="selectedHandDiagnostic">
-            選択着手フレーム：まだ指定されていません
+            選択着手フレーム：未指定
         </div>
     `;
 }
 
-
 // ============================================================
-// 選択された着手フレームの時間・手首座標を表示
+// 選択着手フレームの表示
 // ============================================================
 
 function showSelectedHandFrameTime(selectedFrame) {
     getPoseDiagnosticElement();
 
     const frameNumber = Number(selectedFrame);
+
     if (!Number.isFinite(frameNumber)) return;
 
     const targetFrame = poseFrames.find(
@@ -95,64 +117,57 @@ function showSelectedHandFrameTime(selectedFrame) {
 
     if (!targetFrame) {
         targetElement.innerHTML = `
-            <strong>選択着手フレーム：${frameNumber}</strong>
-            <br>
-            着手動画時間：
-            <span style="color:#c62828;">取得できませんでした</span>
+            <strong>選択着手フレーム：${frameNumber}</strong><br>
+            該当データを取得できませんでした。
         `;
         return;
     }
 
-    const time = Number(targetFrame.time);
-    const hand = targetFrame.handPosition || {};
+    const hand = targetFrame.handPosition;
 
     targetElement.innerHTML = `
-        <strong>選択着手フレーム：${frameNumber}</strong>
-        <br>
-        着手動画時間：
-        <strong style="color:#1565c0;">
-            ${Number.isFinite(time) ? time.toFixed(3) : "-"} 秒
-        </strong>
-        <br>
+        <strong>選択着手フレーム：${frameNumber}</strong><br>
+        動画時間：
+        <strong>${Number(targetFrame.time).toFixed(3)} 秒</strong><br>
         手首中央座標：
         ${
-            Number.isFinite(hand.x) && Number.isFinite(hand.y)
+            hand
                 ? `x=${hand.x.toFixed(3)}, y=${hand.y.toFixed(3)}`
                 : "取得できません"
         }
     `;
 }
 
-
 // ============================================================
-// 特定フレームの情報を取得
+// フレーム情報取得
 // ============================================================
 
 function getPoseFrameInfo(frameNumber) {
     const number = Number(frameNumber);
+
     if (!Number.isFinite(number)) return null;
 
-    const frame = poseFrames.find(
+    return poseFrames.find(
         item => Number(item.frame) === number
-    );
-
-    if (!frame) return null;
-
-    return {
-        frame: frame.frame,
-        time: frame.time,
-        landmarks: frame.landmarks,
-        handPosition: frame.handPosition
-    };
+    ) || null;
 }
 
+// ============================================================
+// 解析完了待機
+// ============================================================
+
+function waitForPoseComplete() {
+    return analysisPromise;
+}
 
 // ============================================================
-// AI開始
+// 解析開始
 // ============================================================
 
 async function startPose(video, canvas, ctx) {
     clearPoseFrames();
+
+    const myToken = analysisToken;
 
     if (!pose) {
         pose = new Pose({
@@ -169,15 +184,27 @@ async function startPose(video, canvas, ctx) {
         });
 
         pose.onResults(results => {
+            if (myToken !== analysisToken) return;
+
             onResults(results, video, canvas, ctx);
         });
     }
 
     getPoseDiagnosticElement();
 
+    analysisRunning = true;
+
+    analysisPromise = new Promise(resolve => {
+        resolveAnalysis = resolve;
+    });
+
+    let sending = false;
+
     async function analyze() {
+        if (myToken !== analysisToken) return;
+
         if (video.ended) {
-            updatePoseDiagnostic(video);
+            finishPoseLoop(myToken, video);
             return;
         }
 
@@ -187,20 +214,73 @@ async function startPose(video, canvas, ctx) {
             return;
         }
 
-        await pose.send({ image: video });
+        // 同時に複数のPose処理を実行しない
+        if (sending) {
+            requestAnimationFrame(analyze);
+            return;
+        }
+
+        sending = true;
+
+        try {
+            await pose.send({ image: video });
+        } catch (error) {
+            console.error("Pose解析エラー:", error);
+        } finally {
+            sending = false;
+        }
+
+        if (myToken !== analysisToken) return;
+
         updatePoseDiagnostic(video);
+
+        if (video.ended) {
+            finishPoseLoop(myToken, video);
+            return;
+        }
+
         requestAnimationFrame(analyze);
     }
 
-    analyze();
+    requestAnimationFrame(analyze);
 }
 
+// ============================================================
+// 解析ループ終了
+// ============================================================
+
+function finishPoseLoop(token, video) {
+    if (token !== analysisToken) return;
+
+    if (!analysisRunning) return;
+
+    analysisRunning = false;
+
+    updatePoseDiagnostic(video);
+
+    if (resolveAnalysis) {
+        resolveAnalysis();
+        resolveAnalysis = null;
+    }
+
+    console.log("Pose解析ループ終了", {
+        processedFrameCount,
+        detectedFrameCount: poseFrames.length
+    });
+}
 
 // ============================================================
-// 骨格結果
+// 骨格結果保存
 // ============================================================
 
 function onResults(results, video, canvas, ctx) {
+    processedFrameCount++;
+
+    if (!ctx || !canvas) {
+        updatePoseDiagnostic(video);
+        return;
+    }
+
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     if (!results.poseLandmarks) {
@@ -227,27 +307,21 @@ function onResults(results, video, canvas, ctx) {
         }
     );
 
-    const landmarks = results.poseLandmarks.map(landmark => ({
-        x: landmark.x,
-        y: landmark.y,
-        z: landmark.z,
-        visibility: landmark.visibility
+    const landmarks = results.poseLandmarks.map(point => ({
+        x: Number(point.x),
+        y: Number(point.y),
+        z: Number(point.z),
+        visibility: Number(point.visibility ?? 1)
     }));
 
-    // MediaPipe Poseの手首ランドマーク
-    // 15 = 左手首、16 = 右手首
     const leftWrist = landmarks[15];
     const rightWrist = landmarks[16];
 
     let handPosition = null;
 
     if (
-        leftWrist &&
-        rightWrist &&
-        Number.isFinite(leftWrist.x) &&
-        Number.isFinite(leftWrist.y) &&
-        Number.isFinite(rightWrist.x) &&
-        Number.isFinite(rightWrist.y)
+        isValidPoint(leftWrist) &&
+        isValidPoint(rightWrist)
     ) {
         handPosition = {
             x: (leftWrist.x + rightWrist.x) / 2,
@@ -255,17 +329,88 @@ function onResults(results, video, canvas, ctx) {
         };
     }
 
-    poseFrames.push({
+    const leftElbow = landmarks[13];
+    const rightElbow = landmarks[14];
+
+    const leftHip = landmarks[23];
+    const rightHip = landmarks[24];
+
+    const leftKnee = landmarks[25];
+    const rightKnee = landmarks[26];
+
+    const leftAnkle = landmarks[27];
+    const rightAnkle = landmarks[28];
+
+    const frameData = {
         frame: frameCount,
         time: Number(video.currentTime),
+
         landmarks: landmarks,
-        handPosition: handPosition
-    });
+
+        handPosition: handPosition,
+
+        leftWrist: copyPoint(leftWrist),
+        rightWrist: copyPoint(rightWrist),
+
+        leftElbow: copyPoint(leftElbow),
+        rightElbow: copyPoint(rightElbow),
+
+        leftHip: copyPoint(leftHip),
+        rightHip: copyPoint(rightHip),
+
+        leftKnee: copyPoint(leftKnee),
+        rightKnee: copyPoint(rightKnee),
+
+        leftAnkle: copyPoint(leftAnkle),
+        rightAnkle: copyPoint(rightAnkle),
+
+        visibility: {
+            leftWrist: getVisibility(leftWrist),
+            rightWrist: getVisibility(rightWrist),
+            leftKnee: getVisibility(leftKnee),
+            rightKnee: getVisibility(rightKnee),
+            leftAnkle: getVisibility(leftAnkle),
+            rightAnkle: getVisibility(rightAnkle)
+        }
+    };
+
+    poseFrames.push(frameData);
 
     frameCount++;
+
     updatePoseDiagnostic(video);
 }
 
+// ============================================================
+// 座標の有効性確認
+// ============================================================
+
+function isValidPoint(point) {
+    return !!(
+        point &&
+        Number.isFinite(point.x) &&
+        Number.isFinite(point.y)
+    );
+}
+
+function copyPoint(point) {
+    if (!isValidPoint(point)) return null;
+
+    return {
+        x: point.x,
+        y: point.y,
+        z: point.z,
+        visibility: point.visibility
+    };
+}
+
+function getVisibility(point) {
+    if (!point) return 0;
+
+    const value = Number(point.visibility);
+
+    return Number.isFinite(value) ? value : 0;
+}
 
 // ============================================================
 // フレーム取得
@@ -275,19 +420,28 @@ function getPoseFrames() {
     return poseFrames;
 }
 
-
 // ============================================================
 // フレームリセット
 // ============================================================
 
 function clearPoseFrames() {
+    analysisToken++;
+
+    if (resolveAnalysis) {
+        resolveAnalysis();
+        resolveAnalysis = null;
+    }
+
+    analysisRunning = false;
+    analysisPromise = Promise.resolve();
+
     poseFrames = [];
     frameCount = 0;
+    processedFrameCount = 0;
 }
 
-
 // ============================================================
-// 公開
+// 公開関数
 // ============================================================
 
 window.startPose = startPose;
@@ -295,5 +449,6 @@ window.getPoseFrames = getPoseFrames;
 window.clearPoseFrames = clearPoseFrames;
 window.getPoseFrameInfo = getPoseFrameInfo;
 window.showSelectedHandFrameTime = showSelectedHandFrameTime;
+window.waitForPoseComplete = waitForPoseComplete;
 
-console.log("pose.js Ver6.4 読み込み成功");
+console.log("pose.js Ver7.1 読み込み成功");

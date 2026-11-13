@@ -1,1611 +1,312 @@
+
 // ============================================================
 // 跳び箱AI採点システム
-// app.js 診断版
+// app.js Ver7.1
+// 完全置き換え版
 //
-// 目的：
-// 「取得フレーム数が19で止まる」原因を画面上で特定する
-//
-// 採点ロジック(score.js)は変更しない
-// phase.jsも変更しない
+// ・Pose初期化を待ってから動画再生
+// ・動画終了後にPose処理の完了を待つ
+// ・解析完了の二重実行を防止
+// ・既存score.js / phase.js / feedback.jsと連携
 // ============================================================
 
 const videoFile = document.getElementById("videoFile");
 const video = document.getElementById("video");
 const canvas = document.getElementById("outputCanvas");
-const ctx = canvas.getContext("2d");
-
 const detectBtn = document.getElementById("detectBtn");
-const status = document.getElementById("status");
 
-const dScore = document.getElementById("dScore");
-const eScore = document.getElementById("eScore");
-const totalScore = document.getElementById("totalScore");
+const statusElement = document.getElementById("status");
+const dScoreElement = document.getElementById("dScore");
+const eScoreElement = document.getElementById("eScore");
+const totalScoreElement = document.getElementById("totalScore");
+
+const ctx = canvas ? canvas.getContext("2d") : null;
 
 let analyzing = false;
 let analysisFinished = false;
-
-let diagnosticTimer = null;
-let lastFrameCount = 0;
-let lastFrameChangeTime = 0;
-let analysisStartTime = 0;
-let lastVideoTime = 0;
-
+let currentAnalysisId = 0;
 
 // ============================================================
-// 診断画面を作る
+// 表示更新
 // ============================================================
 
-function getDiagnosticElement() {
-
-    let el = document.getElementById("diagnosticInfo");
-
-    if (el) {
-        return el;
+function setStatus(message) {
+    if (statusElement) {
+        statusElement.textContent = message;
     }
-
-    el = document.createElement("div");
-
-    el.id = "diagnosticInfo";
-
-    el.style.marginTop = "15px";
-    el.style.padding = "15px";
-    el.style.border = "3px solid #1976d2";
-    el.style.borderRadius = "10px";
-    el.style.background = "#f5faff";
-    el.style.fontSize = "16px";
-    el.style.lineHeight = "1.8";
-
-    const phaseInfo =
-        document.getElementById("phaseInfo");
-
-    if (phaseInfo && phaseInfo.parentElement) {
-
-        phaseInfo.parentElement.appendChild(el);
-
-    } else {
-
-        document.body.appendChild(el);
-
-    }
-
-    return el;
 }
 
-
-// ============================================================
-// フェーズ表示
-// ============================================================
-
-function getPhaseInfoElement() {
-
-    let phaseInfo =
-        document.getElementById("phaseInfo");
-
-    if (!phaseInfo) {
-
-        phaseInfo =
-            document.createElement("div");
-
-        phaseInfo.id = "phaseInfo";
-
-        phaseInfo.style.marginTop = "10px";
-        phaseInfo.style.padding = "10px";
-        phaseInfo.style.borderRadius = "8px";
-
-        const parent =
-            status.closest(".card");
-
-        if (parent) {
-
-            parent.appendChild(
-                phaseInfo
-            );
-
-        } else {
-
-            document.body.appendChild(
-                phaseInfo
-            );
-
-        }
-
-    }
-
-    return phaseInfo;
-}
-
-
-// ============================================================
-// 診断情報を画面に表示
-// ============================================================
-
-function updateDiagnostic() {
-
-    const el =
-        getDiagnosticElement();
-
-    let frames = [];
-
-    try {
-
-        if (
-            typeof getPoseFrames ===
-            "function"
-        ) {
-
-            frames =
-                getPoseFrames() || [];
-
-        }
-
-    } catch (error) {
-
-        console.error(
-            "診断用フレーム取得エラー:",
-            error
-        );
-
-    }
-
-
-    const frameCount =
-        frames.length;
-
-
-    // ----------------------------------------
-    // フレーム数が増えたか確認
-    // ----------------------------------------
+function updateTotal() {
+    const d = Number(dScoreElement?.textContent);
+    const e = Number(eScoreElement?.value ?? eScoreElement?.textContent);
 
     if (
-        frameCount !==
-        lastFrameCount
+        Number.isFinite(d) &&
+        Number.isFinite(e) &&
+        totalScoreElement
     ) {
-
-        lastFrameCount =
-            frameCount;
-
-        lastFrameChangeTime =
-            Date.now();
-
+        totalScoreElement.textContent = (d + e).toFixed(1);
     }
-
-
-    // ----------------------------------------
-    // 動画情報
-    // ----------------------------------------
-
-    const duration =
-        Number(video.duration);
-
-    const currentTime =
-        Number(video.currentTime);
-
-    const readyState =
-        video.readyState;
-
-    const networkState =
-        video.networkState;
-
-    const paused =
-        video.paused;
-
-    const ended =
-        video.ended;
-
-    const seeking =
-        video.seeking;
-
-
-    // ----------------------------------------
-    // フレーム停止時間
-    // ----------------------------------------
-
-    let stoppedSeconds = 0;
-
-    if (lastFrameChangeTime > 0) {
-
-        stoppedSeconds =
-            (
-                Date.now() -
-                lastFrameChangeTime
-            ) / 1000;
-
-    }
-
-
-    // ----------------------------------------
-    // 動画再生時間の変化
-    // ----------------------------------------
-
-    const videoTimeChanged =
-        currentTime !==
-        lastVideoTime;
-
-    lastVideoTime =
-        currentTime;
-
-
-    // ----------------------------------------
-    // 原因判定
-    // ----------------------------------------
-
-    let diagnosis =
-        "解析中";
-
-    let diagnosisColor =
-        "#1565c0";
-
-
-    if (!video.src) {
-
-        diagnosis =
-            "動画が選択されていません";
-
-        diagnosisColor =
-            "#555";
-
-    }
-
-    else if (
-        readyState < 2
-    ) {
-
-        diagnosis =
-            "動画データの読み込み不足";
-
-        diagnosisColor =
-            "#c62828";
-
-    }
-
-    else if (
-        ended &&
-        frameCount < 10
-    ) {
-
-        diagnosis =
-            "動画終了時点で骨格フレームが10未満です";
-
-        diagnosisColor =
-            "#c62828";
-
-    }
-
-    else if (
-        !ended &&
-        !paused &&
-        stoppedSeconds >= 3 &&
-        frameCount > 0
-    ) {
-
-        diagnosis =
-            "動画は再生中ですが、骨格フレームが3秒以上増えていません";
-
-        diagnosisColor =
-            "#c62828";
-
-    }
-
-    else if (
-        !ended &&
-        paused &&
-        frameCount > 0
-    ) {
-
-        diagnosis =
-            "動画が一時停止しています";
-
-        diagnosisColor =
-            "#ef6c00";
-
-    }
-
-    else if (
-        frameCount < 10
-    ) {
-
-        diagnosis =
-            "骨格フレームを取得中です";
-
-        diagnosisColor =
-            "#ef6c00";
-
-    }
-
-    else {
-
-        diagnosis =
-            "骨格フレーム取得は進行しています";
-
-        diagnosisColor =
-            "#2e7d32";
-
-    }
-
-
-    // ----------------------------------------
-    // readyState説明
-    // ----------------------------------------
-
-    let readyText = "";
-
-    if (readyState === 0) {
-
-        readyText =
-            "0：未読み込み";
-
-    } else if (readyState === 1) {
-
-        readyText =
-            "1：メタデータのみ";
-
-    } else if (readyState === 2) {
-
-        readyText =
-            "2：現在位置を再生可能";
-
-    } else if (readyState === 3) {
-
-        readyText =
-            "3：現在位置より先も再生可能";
-
-    } else if (readyState === 4) {
-
-        readyText =
-            "4：十分に読み込み済み";
-
-    }
-
-
-    // ----------------------------------------
-    // networkState説明
-    // ----------------------------------------
-
-    let networkText = "";
-
-    if (networkState === 0) {
-
-        networkText =
-            "0：未初期化";
-
-    } else if (networkState === 1) {
-
-        networkText =
-            "1：アイドル";
-
-    } else if (networkState === 2) {
-
-        networkText =
-            "2：読み込み中";
-
-    } else if (networkState === 3) {
-
-        networkText =
-            "3：読み込み停止";
-
-    }
-
-
-    // ----------------------------------------
-    // 再生状態
-    // ----------------------------------------
-
-    let playState = "";
-
-    if (ended) {
-
-        playState =
-            "動画終了";
-
-    } else if (paused) {
-
-        playState =
-            "一時停止";
-
-    } else {
-
-        playState =
-            "再生中";
-
-    }
-
-
-    // ----------------------------------------
-    // 画面表示
-    // ----------------------------------------
-
-    el.innerHTML = `
-
-        <div style="
-            font-size:20px;
-            font-weight:bold;
-            border-bottom:1px solid #999;
-            padding-bottom:6px;
-            margin-bottom:8px;
-        ">
-            🔎 AI解析診断情報
-        </div>
-
-        <div>
-            <strong>取得フレーム数：</strong>
-            ${frameCount}
-        </div>
-
-        <div>
-            <strong>動画の長さ：</strong>
-            ${
-                Number.isFinite(duration)
-                ? duration.toFixed(2)
-                : "-"
-            }
-            秒
-        </div>
-
-        <div>
-            <strong>現在の再生時間：</strong>
-            ${
-                Number.isFinite(currentTime)
-                ? currentTime.toFixed(2)
-                : "-"
-            }
-            秒
-        </div>
-
-        <div>
-            <strong>動画状態：</strong>
-            ${playState}
-        </div>
-
-        <div>
-            <strong>readyState：</strong>
-            ${readyText}
-        </div>
-
-        <div>
-            <strong>networkState：</strong>
-            ${networkText}
-        </div>
-
-        <div>
-            <strong>最後にフレームが増えてから：</strong>
-            ${stoppedSeconds.toFixed(1)}
-            秒
-        </div>
-
-        <div>
-            <strong>動画時間は進んでいる：</strong>
-            ${videoTimeChanged ? "はい" : "いいえ"}
-        </div>
-
-        <hr>
-
-        <div style="
-            font-size:18px;
-            font-weight:bold;
-            color:${diagnosisColor};
-        ">
-            原因診断：
-            ${diagnosis}
-        </div>
-
-    `;
-
 }
-
-
-// ============================================================
-// 診断監視開始
-// ============================================================
-
-function startDiagnosticMonitor() {
-
-    if (diagnosticTimer) {
-
-        clearInterval(
-            diagnosticTimer
-        );
-
-    }
-
-    lastFrameCount = 0;
-    lastFrameChangeTime =
-        Date.now();
-
-    lastVideoTime =
-        video.currentTime || 0;
-
-    updateDiagnostic();
-
-    diagnosticTimer =
-        setInterval(
-            updateDiagnostic,
-            500
-        );
-
-}
-
-
-// ============================================================
-// 診断監視停止
-// ============================================================
-
-function stopDiagnosticMonitor() {
-
-    if (diagnosticTimer) {
-
-        clearInterval(
-            diagnosticTimer
-        );
-
-        diagnosticTimer =
-            null;
-
-    }
-
-    updateDiagnostic();
-
-}
-
 
 // ============================================================
 // 動画選択
 // ============================================================
 
-videoFile.addEventListener(
-    "change",
-    () => {
+if (videoFile) {
+    videoFile.addEventListener("change", () => {
+        const file = videoFile.files?.[0];
 
-       const file = videoFile.files[0];
+        if (!file) return;
 
-if (!file) {
-    return;
-}
-
-// ファイル名から動画の種類を判定
-const fileName = file.name;
-
-let videoType = "unknown";
-
-if (fileName.includes("成功①")) {
-    videoType = "成功①";
-} else if (fileName.includes("成功②")) {
-    videoType = "成功②";
-} else if (fileName.includes("普通")) {
-    videoType = "普通";
-}
-
-// 動画の種類を保存
-window.currentVaultVideoType = videoType;
-
-console.log("選択した動画:", fileName);
-console.log("判別した動画種類:", videoType);
-
-        video.src =
-            URL.createObjectURL(file);
-
+        currentAnalysisId++;
         analyzing = false;
         analysisFinished = false;
 
-        dScore.textContent = "-";
-        totalScore.textContent = "-";
-
-        status.textContent =
-            "動画を読み込み中...";
-
-        const feedback =
-            document.getElementById(
-                "feedback"
-            );
-
-        if (feedback) {
-
-            feedback.innerHTML =
-                "解析するとAI評価が表示されます";
-
+        clearPoseFrames();
+        if (typeof clearPhase === "function") {
+            clearPhase();
         }
 
-        const phaseInfo =
-            getPhaseInfoElement();
+        if (dScoreElement) dScoreElement.textContent = "-";
+        if (totalScoreElement) totalScoreElement.textContent = "-";
 
-        phaseInfo.innerHTML =
-            "未解析";
+        const feedback = document.getElementById("feedback");
+        if (feedback) feedback.innerHTML = "";
 
-        getDiagnosticElement().innerHTML = `
-            <strong>🔎 AI解析診断情報</strong><br>
-            動画を読み込み中...
-        `;
+        const phaseInfo = document.getElementById("phaseInfo");
+        if (phaseInfo) phaseInfo.textContent = "";
 
-    }
-);
+        video.src = URL.createObjectURL(file);
+        video.load();
 
-
-// ============================================================
-// 動画メタデータ読み込み
-// ============================================================
-
-video.addEventListener(
-    "loadedmetadata",
-    () => {
-
-        canvas.width =
-            video.videoWidth;
-
-        canvas.height =
-            video.videoHeight;
-
-
-        console.log(
-            "動画幅:",
-            video.videoWidth
-        );
-
-        console.log(
-            "動画高さ:",
-            video.videoHeight
-        );
-
-        console.log(
-            "動画時間:",
-            video.duration
-        );
-
-        updateDiagnostic();
-
-    }
-);
-
-
-// ============================================================
-// 動画データ読み込み完了
-// ============================================================
-
-video.addEventListener(
-    "loadeddata",
-    () => {
-
-        canvas.style.width =
-            video.clientWidth + "px";
-
-        canvas.style.height =
-            video.clientHeight + "px";
-
-        status.textContent =
-            "動画準備完了";
-
-        updateDiagnostic();
-
-    }
-);
-
-
-// ============================================================
-// 再生開始
-// ============================================================
-
-video.addEventListener(
-    "play",
-    () => {
-
-        console.log(
-            "動画 play イベント"
-        );
-
-        updateDiagnostic();
-
-    }
-);
-
-
-// ============================================================
-// 一時停止
-// ============================================================
-
-video.addEventListener(
-    "pause",
-    () => {
-
-        console.log(
-            "動画 pause イベント"
-        );
-
-        updateDiagnostic();
-
-    }
-);
-
-
-// ============================================================
-// 時間更新
-// ============================================================
-
-video.addEventListener(
-    "timeupdate",
-    () => {
-
-        updateDiagnostic();
-
-    }
-);
-
-
-// ============================================================
-// 動画終了
-// ============================================================
-
-video.addEventListener(
-    "ended",
-    () => {
-
-        console.log(
-            "================================"
-        );
-
-        console.log(
-            "動画終了"
-        );
-
-        console.log(
-            "終了時フレーム数:",
-            getPoseFrameCount()
-        );
-
-        console.log(
-            "動画時間:",
-            video.duration
-        );
-
-        console.log(
-            "現在時間:",
-            video.currentTime
-        );
-
-        console.log(
-            "================================"
-        );
-
-        updateDiagnostic();
-
-        if (!analyzing) {
-
-            return;
-
-        }
-
-        finishAnalysis();
-
-    }
-);
-
-
-// ============================================================
-// エラー監視
-// ============================================================
-
-video.addEventListener(
-    "error",
-    () => {
-
-        console.error(
-            "動画エラー:",
-            video.error
-        );
-
-        const el =
-            getDiagnosticElement();
-
-        el.innerHTML += `
-            <hr>
-            <strong style="color:#c62828;">
-                ⚠ 動画読み込みエラー
-            </strong>
-        `;
-
-        status.textContent =
-            "動画読み込みエラー";
-
-    }
-);
-
-
-// ============================================================
-// フレーム数取得
-// ============================================================
-
-function getPoseFrameCount() {
-
-    try {
-
-        if (
-            typeof getPoseFrames ===
-            "function"
-        ) {
-
-            const frames =
-                getPoseFrames();
-
-            if (
-                Array.isArray(frames)
-            ) {
-
-                return frames.length;
-
-            }
-
-        }
-
-    } catch (error) {
-
-        console.error(
-            "フレーム数取得エラー:",
-            error
-        );
-
-    }
-
-    return 0;
-
+        setStatus("動画を読み込みました。解析ボタンを押してください。");
+    });
 }
 
-
 // ============================================================
-// AI解析開始
+// 動画メタデータ
 // ============================================================
 
-detectBtn.addEventListener(
-    "click",
-    async () => {
-
-        if (!video.src) {
-
-            alert(
-                "動画を選択してください"
-            );
-
-            return;
-
+if (video) {
+    video.addEventListener("loadedmetadata", () => {
+        if (canvas) {
+            canvas.width = video.videoWidth || 640;
+            canvas.height = video.videoHeight || 360;
         }
+    });
 
+    video.addEventListener("ended", () => {
         if (analyzing) {
+            finishAnalysis(currentAnalysisId);
+        }
+    });
 
+    video.addEventListener("error", () => {
+        setStatus("動画の読み込みに失敗しました。別の動画を選択してください。");
+    });
+}
+
+// ============================================================
+// フェーズ情報表示
+// ============================================================
+
+function showPhaseInfo(phase) {
+    let element = document.getElementById("phaseInfo");
+
+    if (!element) {
+        element = document.createElement("div");
+        element.id = "phaseInfo";
+        element.style.cssText = `
+            margin-top:10px;
+            padding:10px;
+            background:#eef6ff;
+            border-radius:8px;
+            line-height:1.7;
+        `;
+
+        if (canvas && canvas.parentElement) {
+            canvas.parentElement.appendChild(element);
+        } else {
+            document.body.appendChild(element);
+        }
+    }
+
+    element.innerHTML = `
+        <strong>動作フェーズ検出結果</strong><br>
+        踏切フレーム：${phase.takeOff ?? "-"}<br>
+        着手フレーム：${phase.handContact ?? "-"}<br>
+        腰最高点フレーム：${phase.highestHip ?? "-"}<br>
+        着地フレーム：${phase.landing ?? "-"}<br>
+        着手候補数：${Array.isArray(phase.handCandidates)
+            ? phase.handCandidates.length
+            : "-"}
+    `;
+}
+
+// ============================================================
+// 解析開始
+// ============================================================
+
+if (detectBtn) {
+    detectBtn.addEventListener("click", async () => {
+        if (!video || !video.src) {
+            setStatus("先に動画を選択してください。");
             return;
-
         }
 
+        if (analyzing) return;
+
+        currentAnalysisId++;
+        const analysisId = currentAnalysisId;
 
         analyzing = true;
         analysisFinished = false;
 
+        detectBtn.disabled = true;
 
-        console.log(
-            "================================"
-        );
+        clearPoseFrames();
 
-        console.log(
-            "AI解析開始"
-        );
-
-        console.log(
-            "動画時間:",
-            video.duration
-        );
-
-        console.log(
-            "video.readyState:",
-            video.readyState
-        );
-
-        console.log(
-            "video.networkState:",
-            video.networkState
-        );
-
-        console.log(
-            "================================"
-        );
-
-
-        // --------------------------------
-        // データ初期化
-        // --------------------------------
-
-        if (
-            typeof clearPoseFrames ===
-            "function"
-        ) {
-
-            clearPoseFrames();
-
-        }
-
-        if (
-            typeof clearPhase ===
-            "function"
-        ) {
-
+        if (typeof clearPhase === "function") {
             clearPhase();
-
         }
 
+        if (dScoreElement) dScoreElement.textContent = "-";
+        if (totalScoreElement) totalScoreElement.textContent = "-";
 
-        dScore.textContent = "-";
-        totalScore.textContent = "-";
+        const feedback = document.getElementById("feedback");
+        if (feedback) feedback.innerHTML = "";
 
+        const phaseInfo = document.getElementById("phaseInfo");
+        if (phaseInfo) phaseInfo.innerHTML = "";
 
-        const feedback =
-            document.getElementById(
-                "feedback"
-            );
-
-        if (feedback) {
-
-            feedback.innerHTML =
-                "AI解析中...";
-
-        }
-
-
-        const phaseInfo =
-            getPhaseInfoElement();
-
-        phaseInfo.innerHTML =
-            "解析中...";
-
-
-        status.textContent =
-            "AI解析中...";
-
-
-        // --------------------------------
-        // 診断開始
-        // --------------------------------
-
-        analysisStartTime =
-            Date.now();
-
-        startDiagnosticMonitor();
-
-
-        // --------------------------------
-        // 動画を最初に戻す
-        // --------------------------------
-
-        video.pause();
+        setStatus("骨格検出を準備しています...");
 
         try {
-
+            video.pause();
             video.currentTime = 0;
 
-        } catch (error) {
+            await new Promise(resolve => {
+                if (video.readyState >= 2) {
+                    resolve();
+                } else {
+                    video.addEventListener("loadeddata", resolve, {
+                        once: true
+                    });
+                }
+            });
 
-            console.error(
-                "currentTime設定エラー:",
-                error
-            );
+            if (analysisId !== currentAnalysisId) return;
 
-        }
+            canvas.width = video.videoWidth || 640;
+            canvas.height = video.videoHeight || 360;
 
+            // Pose解析を開始
+            const poseStart = startPose(video, canvas, ctx);
 
-        // --------------------------------
-        // AI開始
-        // --------------------------------
+            // startPoseの初期化完了を待つ
+            await poseStart;
 
-        try {
+            if (analysisId !== currentAnalysisId) return;
 
-            if (
-                typeof startPose !==
-                "function"
-            ) {
-
-                throw new Error(
-                    "startPose が見つかりません"
-                );
-
-            }
-
-
-            /*
-             * 重要
-             *
-             * startPoseを先に呼び、
-             * その後に動画を再生する。
-             *
-             * これによって、動画再生開始直後の
-             * フレーム取りこぼしを減らす。
-             */
-
-            startPose(
-                video,
-                canvas,
-                ctx
-            );
-
+            setStatus("解析中です。動画が終わるまでお待ちください。");
 
             await video.play();
 
+        } catch (error) {
+            console.error("解析開始エラー:", error);
 
-            status.textContent =
-                "AI解析中：骨格フレーム取得中";
-
-
-            updateDiagnostic();
-
-        }
-
-        catch (error) {
-
-            console.error(
-                "AI開始エラー:",
-                error
-            );
+            setStatus("解析を開始できませんでした。動画を選び直してください。");
 
             analyzing = false;
-
-            stopDiagnosticMonitor();
-
-            status.textContent =
-                "AI解析を開始できませんでした";
-
-
-            const el =
-                getDiagnosticElement();
-
-            el.innerHTML += `
-                <hr>
-                <strong style="color:#c62828;">
-                    AI開始エラー
-                </strong><br>
-                ${error.message}
-            `;
-
+            detectBtn.disabled = false;
         }
-
-    }
-);
-
+    });
+}
 
 // ============================================================
-// AI解析終了
+// 解析終了
 // ============================================================
 
-function finishAnalysis() {
-
-    if (!analyzing) {
-
-        return;
-
-    }
-
-    if (analysisFinished) {
-
-        return;
-
-    }
-
-
-    console.log(
-        "========== 解析終了 =========="
-    );
-
+async function finishAnalysis(analysisId) {
+    if (analysisId !== currentAnalysisId) return;
+    if (analysisFinished) return;
 
     analysisFinished = true;
-    analyzing = false;
 
-
-    // --------------------------------
-    // 診断監視終了
-    // --------------------------------
-
-    stopDiagnosticMonitor();
-
-
-    // --------------------------------
-    // フレーム取得
-    // --------------------------------
-
-    let frames = [];
+    setStatus("骨格検出の最終処理を待っています...");
 
     try {
-
-        if (
-            typeof getPoseFrames !==
-            "function"
-        ) {
-
-            throw new Error(
-                "getPoseFrames が見つかりません"
-            );
-
+        // Poseの非同期処理完了を待つ
+        if (typeof waitForPoseComplete === "function") {
+            await waitForPoseComplete();
         }
 
-        frames =
-            getPoseFrames() || [];
+        if (analysisId !== currentAnalysisId) return;
 
-    }
+        const frames = getPoseFrames();
 
-    catch (error) {
+        console.log("解析終了時フレーム数:", frames.length);
 
-        console.error(
-            "フレーム取得エラー:",
-            error
-        );
-
-        status.textContent =
-            "骨格データ取得に失敗しました";
-
-        getPhaseInfoElement()
-            .innerHTML =
-            "解析失敗";
-
-        return;
-
-    }
-
-
-    const frameCount =
-        frames.length;
-
-
-    console.log(
-        "最終取得フレーム数:",
-        frameCount
-    );
-
-
-    // --------------------------------
-    // 最終診断
-    // --------------------------------
-
-    const diagnostic =
-        getDiagnosticElement();
-
-    const duration =
-        Number(video.duration);
-
-    const currentTime =
-        Number(video.currentTime);
-
-    let finalMessage = "";
-
-
-    if (frameCount < 10) {
-
-        finalMessage = `
-            <div style="
-                margin-top:10px;
-                padding:10px;
-                background:#ffebee;
-                border-radius:8px;
-                color:#b71c1c;
-            ">
-                <strong>
-                    ⚠ フレーム不足
-                </strong><br>
-
-                最終取得フレーム：
-                ${frameCount} フレーム<br>
-
-                動画の長さ：
-                ${
-                    Number.isFinite(duration)
-                    ? duration.toFixed(2)
-                    : "-"
-                } 秒<br>
-
-                終了時刻：
-                ${
-                    Number.isFinite(currentTime)
-                    ? currentTime.toFixed(2)
-                    : "-"
-                } 秒<br>
-
-                phase.jsへ渡す前に
-                フレーム数が不足しています。
-            </div>
-        `;
-
-    } else {
-
-        finalMessage = `
-            <div style="
-                margin-top:10px;
-                padding:10px;
-                background:#e8f5e9;
-                border-radius:8px;
-                color:#1b5e20;
-            ">
-                <strong>
-                    ✓ フレーム数は十分です
-                </strong><br>
-
-                最終取得フレーム：
-                ${frameCount} フレーム
-            </div>
-        `;
-
-    }
-
-
-    diagnostic.innerHTML +=
-        finalMessage;
-
-
-    // --------------------------------
-    // 10フレーム未満なら
-    // phase.jsを実行しない
-    // --------------------------------
-
-    if (
-        !frames ||
-        frames.length < 10
-    ) {
-
-        getPhaseInfoElement()
-            .innerHTML = `
-                <strong>解析失敗</strong><br>
-                フレーム不足
-            `;
-
-        status.textContent =
-            "骨格データが不足しています";
-
-        return;
-
-    }
-
-
-    // ========================================================
-    // phase判定
-    // ========================================================
-
-    let phase = null;
-
-    try {
-
-        if (
-            typeof detectPhases !==
-            "function"
-        ) {
-
-            throw new Error(
-                "detectPhases が見つかりません"
+        if (frames.length < 10) {
+            setStatus(
+                `骨格データが不足しています。取得フレーム数：${frames.length}`
             );
-
+            return;
         }
 
-        phase =
-            detectPhases(frames);
+        setStatus("動作フェーズを判定しています...");
 
+        const phase = detectPhases(frames);
 
-        console.log(
-            "phase判定結果:",
-            phase
-        );
+        showPhaseInfo(phase);
 
-    }
-
-    catch (error) {
-
-        console.error(
-            "phase検出エラー:",
-            error
-        );
-
-        getPhaseInfoElement()
-            .innerHTML =
-            "phase検出エラー";
-
-        status.textContent =
-            "phase検出に失敗しました";
-
-        return;
-
-    }
-
-
-    if (!phase) {
-
-        getPhaseInfoElement()
-            .innerHTML =
-            "phase検出に失敗しました";
-
-        status.textContent =
-            "phase検出に失敗しました";
-
-        return;
-
-    }
-
-
-    // ========================================================
-    // phase表示
-    // ========================================================
-
-    const phaseInfo =
-        getPhaseInfoElement();
-
-
-    phaseInfo.innerHTML = `
-
-        <strong>動作フェーズ</strong><br>
-
-        踏切：
-        ${phase.takeOff ?? "—"}
-        フレーム<br>
-
-        着手：
-        ${phase.handContact ?? "—"}
-        フレーム<br>
-
-        最高点：
-        ${phase.highestHip ?? "—"}
-        フレーム<br>
-
-        着地：
-        ${phase.landing ?? "—"}
-        フレーム
-
-    `;
-
-
-    // ========================================================
-    // Dスコア
-    // ========================================================
-
-    let result = null;
-
-    try {
-
-        if (
-            typeof calculateDScore !==
-            "function"
-        ) {
-
-            throw new Error(
-                "calculateDScore が見つかりません"
-            );
-
+        if (typeof showSelectedHandFrameTime === "function") {
+            showSelectedHandFrameTime(phase.handContact);
         }
 
+        setStatus("採点しています...");
 
-        result =
-            calculateDScore(
-                frames,
-                phase
-            );
+        const result = calculateDScore(frames, phase);
 
-
-        console.log(
-            "採点結果:",
-            result
-        );
-
-    }
-
-    catch (error) {
-
-    console.error(
-        "Dスコア計算エラー:",
-        error
-    );
-
-    const errorMessage =
-        error &&
-        error.message
-            ? error.message
-            : String(error);
-
-    status.textContent =
-        "Dスコア計算に失敗しました";
-
-    getPhaseInfoElement()
-        .innerHTML = `
-            <div style="
-                margin-top:10px;
-                padding:12px;
-                background:#ffebee;
-                border-radius:8px;
-                color:#b71c1c;
-            ">
-                <strong>Dスコア計算エラー</strong><br><br>
-
-                ${errorMessage}
-
-                <br><br>
-
-                <strong>取得フレーム：</strong>
-                ${frames.length}
-
-                <br>
-
-                <strong>着手フレーム：</strong>
-                ${
-                    phase &&
-                    Number.isFinite(
-                        Number(phase.handContact)
-                    )
-                    ? phase.handContact
-                    : "-"
-                }
-            </div>
-        `;
-
-    return;
-
-
-    }
-
-
-    if (!result) {
-
-        status.textContent =
-            "採点結果を取得できませんでした";
-
-        return;
-
-    }
-
-
-    // ========================================================
-    // Dスコア表示
-    // ========================================================
-
-    const score =
-        Number(result.score);
-
-
-    if (
-        Number.isFinite(score)
-    ) {
-
-        dScore.textContent =
-            score.toFixed(1);
-
-    } else {
-
-        dScore.textContent =
-            "-";
-
-    }
-
-
-    // ========================================================
-    // フィードバック
-    // ========================================================
-
-    try {
+        console.log("採点結果:", result);
 
         if (
-            typeof showFeedback ===
-            "function"
+            !result ||
+            !Number.isFinite(Number(result.score))
         ) {
+            setStatus("採点結果を取得できませんでした。");
+            return;
+        }
 
+        if (dScoreElement) {
+            dScoreElement.textContent =
+                Number(result.score).toFixed(1);
+        }
+
+        if (typeof showFeedback === "function") {
             showFeedback(result);
-
         }
 
-    }
+        updateTotal();
 
-    catch (error) {
-
-        console.error(
-            "フィードバック表示エラー:",
-            error
+        setStatus(
+            `解析完了。骨格取得フレーム数：${frames.length}`
         );
 
-        const feedback =
-            document.getElementById(
-                "feedback"
-            );
-
-        if (feedback) {
-
-            feedback.innerHTML =
-                "AI評価の表示中にエラーが発生しました。";
-
-        }
-
+    } catch (error) {
+        console.error("解析終了エラー:", error);
+        setStatus("解析中にエラーが発生しました。");
+    } finally {
+        analyzing = false;
+        if (detectBtn) detectBtn.disabled = false;
     }
-
-
-    // ========================================================
-    // 合計点
-    // ========================================================
-
-    updateTotal();
-
-
-    // ========================================================
-    // 完了
-    // ========================================================
-
-    status.textContent =
-        "解析完了";
-
-
-    console.log(
-        "========== 解析完了 =========="
-    );
-
 }
 
-
 // ============================================================
-// 合計点
-// ============================================================
-
-eScore.addEventListener(
-    "input",
-    updateTotal
-);
-
-
-function updateTotal() {
-
-    const d =
-        Number(
-            dScore.textContent
-        );
-
-    const e =
-        Number(
-            eScore.value
-        );
-
-
-    if (
-        !Number.isFinite(d) ||
-        !Number.isFinite(e)
-    ) {
-
-        totalScore.textContent =
-            "-";
-
-        return;
-
-    }
-
-
-    totalScore.textContent =
-        (
-            d + e
-        ).toFixed(1);
-
-}
-
-
-// ============================================================
-// 外部公開
+// 公開
 // ============================================================
 
-window.finishAnalysis =
-    finishAnalysis;
+window.updateTotal = updateTotal;
 
-window.updateTotal =
-    updateTotal;
-
-window.updateDiagnostic =
-    updateDiagnostic;
-
-window.startDiagnosticMonitor =
-    startDiagnosticMonitor;
-
-
-// ============================================================
-// 読み込み確認
-// ============================================================
-
-console.log(
-    "================================"
-);
-
-console.log(
-    "app.js 診断版 読み込み成功"
-);
-
-console.log(
-    "取得フレーム数・動画状態・phase診断を画面表示します"
-);
-
-console.log(
-    "================================"
-);
+console.log("app.js Ver7.1 読み込み成功");
