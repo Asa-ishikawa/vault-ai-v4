@@ -161,6 +161,8 @@ function showPhaseInfo(phase) {
 
 if (detectBtn) {
     detectBtn.addEventListener("click", async () => {
+        document.getElementById("appDiagnostic").textContent =
+    "診断：AI骨格検出ボタンが押されました！";
 
         // 最初に表示を更新する
         setStatus("解析ボタンを受け付けました。準備中です...");
