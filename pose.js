@@ -1,24 +1,36 @@
 
 // ============================================================
 // 跳び箱AI採点システム
-// pose.js Ver7.1
+// pose.js Ver7.2
 // 完全置き換え版
 //
-// 改善点
-// ・動画終了時のPose処理完了を待つ
-// ・処理フレーム数と骨格取得数を分けて表示
-// ・非同期処理の重複を防止
+// 修正点
+// ・2回目以降の解析でも骨格結果を受け取れるように修正
+// ・Poseの結果受信関数が古いanalysisTokenを保持する問題を解消
+// ・解析ごとの動画・Canvas情報を管理
+// ・前回の解析ループを無効化
+// ・解析完了待機に対応
 // ・既存app.jsとの互換性を維持
 // ============================================================
 
 let pose = null;
 let poseFrames = [];
+
 let frameCount = 0;
 let processedFrameCount = 0;
+
 let analysisToken = 0;
+let activeToken = 0;
+
 let analysisPromise = Promise.resolve();
 let resolveAnalysis = null;
+
 let analysisRunning = false;
+
+// 現在の解析対象
+let activeVideo = null;
+let activeCanvas = null;
+let activeCtx = null;
 
 // ============================================================
 // 診断表示
@@ -62,11 +74,13 @@ function getPoseDiagnosticElement() {
 function updatePoseDiagnostic(video) {
     const diagnostic = getPoseDiagnosticElement();
 
+    if (!video) return;
+
     const currentTime = Number(video.currentTime);
     const duration = Number(video.duration);
 
     diagnostic.innerHTML = `
-        <strong>骨格検出診断 Ver7.1</strong><br>
+        <strong>骨格検出診断 Ver7.2</strong><br>
 
         処理フレーム数：
         <strong>${processedFrameCount}</strong><br>
@@ -161,39 +175,81 @@ function waitForPoseComplete() {
 }
 
 // ============================================================
+// Poseの準備
+// ============================================================
+
+function initializePose() {
+    if (pose) return;
+
+    pose = new Pose({
+        locateFile: file =>
+            `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`
+    });
+
+    pose.setOptions({
+        modelComplexity: 1,
+        smoothLandmarks: true,
+        enableSegmentation: false,
+        minDetectionConfidence: 0.6,
+        minTrackingConfidence: 0.6
+    });
+
+    // 重要：
+    // ここでは特定の解析のtokenを記憶しない。
+    // 常に現在の解析対象を参照する。
+    pose.onResults(results => {
+
+        if (!analysisRunning) return;
+
+        if (activeToken !== analysisToken) return;
+
+        if (!activeVideo || !activeCanvas || !activeCtx) {
+            return;
+        }
+
+        onResults(
+            results,
+            activeVideo,
+            activeCanvas,
+            activeCtx
+        );
+    });
+
+    console.log("MediaPipe Pose 初期化完了");
+}
+
+// ============================================================
 // 解析開始
 // ============================================================
 
 async function startPose(video, canvas, ctx) {
+
+    // 前回のデータを初期化
     clearPoseFrames();
 
     const myToken = analysisToken;
 
-    if (!pose) {
-        pose = new Pose({
-            locateFile: file =>
-                `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`
-        });
+    // 今回の解析対象を登録
+    activeToken = myToken;
+    activeVideo = video;
+    activeCanvas = canvas;
+    activeCtx = ctx;
 
-        pose.setOptions({
-            modelComplexity: 1,
-            smoothLandmarks: true,
-            enableSegmentation: false,
-            minDetectionConfidence: 0.6,
-            minTrackingConfidence: 0.6
-        });
-
-        pose.onResults(results => {
-            if (myToken !== analysisToken) return;
-
-            onResults(results, video, canvas, ctx);
-        });
+    // Canvas確認
+    if (!video || !canvas || !ctx) {
+        throw new Error(
+            "動画またはCanvasの情報を取得できません。"
+        );
     }
+
+    // Poseの準備
+    initializePose();
 
     getPoseDiagnosticElement();
 
     analysisRunning = true;
 
+    // 今回の解析完了待機を作成
     analysisPromise = new Promise(resolve => {
         resolveAnalysis = resolve;
     });
@@ -201,20 +257,26 @@ async function startPose(video, canvas, ctx) {
     let sending = false;
 
     async function analyze() {
+
+        // 古い解析ループなら終了
         if (myToken !== analysisToken) return;
 
+        if (!analysisRunning) return;
+
+        // 動画終了
         if (video.ended) {
             finishPoseLoop(myToken, video);
             return;
         }
 
+        // 一時停止中
         if (video.paused) {
             updatePoseDiagnostic(video);
             requestAnimationFrame(analyze);
             return;
         }
 
-        // 同時に複数のPose処理を実行しない
+        // Pose処理の重複を防止
         if (sending) {
             requestAnimationFrame(analyze);
             return;
@@ -223,14 +285,21 @@ async function startPose(video, canvas, ctx) {
         sending = true;
 
         try {
-            await pose.send({ image: video });
+            await pose.send({
+                image: video
+            });
+
         } catch (error) {
             console.error("Pose解析エラー:", error);
+
         } finally {
             sending = false;
         }
 
+        // 解析中に別の解析へ切り替わった場合
         if (myToken !== analysisToken) return;
+
+        if (!analysisRunning) return;
 
         updatePoseDiagnostic(video);
 
@@ -250,6 +319,7 @@ async function startPose(video, canvas, ctx) {
 // ============================================================
 
 function finishPoseLoop(token, video) {
+
     if (token !== analysisToken) return;
 
     if (!analysisRunning) return;
@@ -274,6 +344,7 @@ function finishPoseLoop(token, video) {
 // ============================================================
 
 function onResults(results, video, canvas, ctx) {
+
     processedFrameCount++;
 
     if (!ctx || !canvas) {
@@ -281,13 +352,19 @@ function onResults(results, video, canvas, ctx) {
         return;
     }
 
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.clearRect(
+        0,
+        0,
+        canvas.width,
+        canvas.height
+    );
 
     if (!results.poseLandmarks) {
         updatePoseDiagnostic(video);
         return;
     }
 
+    // 骨格の線を描画
     drawConnectors(
         ctx,
         results.poseLandmarks,
@@ -298,6 +375,7 @@ function onResults(results, video, canvas, ctx) {
         }
     );
 
+    // 骨格の点を描画
     drawLandmarks(
         ctx,
         results.poseLandmarks,
@@ -307,6 +385,7 @@ function onResults(results, video, canvas, ctx) {
         }
     );
 
+    // 座標を保存
     const landmarks = results.poseLandmarks.map(point => ({
         x: Number(point.x),
         y: Number(point.y),
@@ -425,19 +504,37 @@ function getPoseFrames() {
 // ============================================================
 
 function clearPoseFrames() {
+
+    // 古い解析ループを無効化
     analysisToken++;
 
+    // 前回の完了待機を解除
     if (resolveAnalysis) {
         resolveAnalysis();
         resolveAnalysis = null;
     }
 
     analysisRunning = false;
+
+    // 現在の解析対象を解除
+    activeVideo = null;
+    activeCanvas = null;
+    activeCtx = null;
+
+    activeToken = analysisToken;
+
+    // 解析待機を初期化
     analysisPromise = Promise.resolve();
 
+    // データを初期化
     poseFrames = [];
+
     frameCount = 0;
     processedFrameCount = 0;
+
+    console.log("Poseデータをリセットしました", {
+        analysisToken
+    });
 }
 
 // ============================================================
@@ -451,4 +548,4 @@ window.getPoseFrameInfo = getPoseFrameInfo;
 window.showSelectedHandFrameTime = showSelectedHandFrameTime;
 window.waitForPoseComplete = waitForPoseComplete;
 
-console.log("pose.js Ver7.1 読み込み成功");
+console.log("pose.js Ver7.2 読み込み成功");
