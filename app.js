@@ -1,13 +1,12 @@
 
 // ============================================================
 // 跳び箱AI採点システム
-// app.js Ver7.1
+// app.js Ver7.2
 // 完全置き換え版
-//
-// ・Pose初期化を待ってから動画再生
-// ・動画終了後にPose処理の完了を待つ
-// ・解析完了の二重実行を防止
-// ・既存score.js / phase.js / feedback.jsと連携
+// ・解析開始時のエラーを画面に表示
+// ・Pose関連関数の読み込み確認
+// ・動画再生開始を優先して診断
+// ・解析終了後に採点
 // ============================================================
 
 const videoFile = document.getElementById("videoFile");
@@ -26,10 +25,6 @@ let analyzing = false;
 let analysisFinished = false;
 let currentAnalysisId = 0;
 
-// ============================================================
-// 表示更新
-// ============================================================
-
 function setStatus(message) {
     if (statusElement) {
         statusElement.textContent = message;
@@ -40,12 +35,38 @@ function updateTotal() {
     const d = Number(dScoreElement?.textContent);
     const e = Number(eScoreElement?.value ?? eScoreElement?.textContent);
 
-    if (
-        Number.isFinite(d) &&
-        Number.isFinite(e) &&
-        totalScoreElement
-    ) {
+    if (Number.isFinite(d) && Number.isFinite(e) && totalScoreElement) {
         totalScoreElement.textContent = (d + e).toFixed(1);
+    }
+}
+
+// ============================================================
+// 必要な関数の確認
+// ============================================================
+
+function checkRequiredFunctions() {
+    const required = [
+        "startPose",
+        "clearPoseFrames",
+        "getPoseFrames",
+        "detectPhases",
+        "calculateDScore"
+    ];
+
+    const missing = required.filter(name => {
+        return typeof window[name] !== "function" &&
+               typeof globalThis[name] !== "function";
+    });
+
+    if (missing.length > 0) {
+        throw new Error(
+            "必要な関数が読み込まれていません：" + missing.join(", ")
+        );
+    }
+
+    if (typeof window.Pose !== "function" &&
+        typeof Pose !== "function") {
+        throw new Error("MediaPipe Poseが読み込まれていません。");
     }
 }
 
@@ -55,37 +76,44 @@ function updateTotal() {
 
 if (videoFile) {
     videoFile.addEventListener("change", () => {
-        const file = videoFile.files?.[0];
+        try {
+            const file = videoFile.files?.[0];
+            if (!file) return;
 
-        if (!file) return;
+            currentAnalysisId++;
+            analyzing = false;
+            analysisFinished = false;
 
-        currentAnalysisId++;
-        analyzing = false;
-        analysisFinished = false;
+            if (typeof clearPoseFrames === "function") {
+                clearPoseFrames();
+            }
 
-        clearPoseFrames();
-        if (typeof clearPhase === "function") {
-            clearPhase();
+            if (typeof clearPhase === "function") {
+                clearPhase();
+            }
+
+            if (dScoreElement) dScoreElement.textContent = "-";
+            if (totalScoreElement) totalScoreElement.textContent = "-";
+
+            const feedback = document.getElementById("feedback");
+            if (feedback) feedback.textContent = "";
+
+            const phaseInfo = document.getElementById("phaseInfo");
+            if (phaseInfo) phaseInfo.textContent = "未解析";
+
+            video.src = URL.createObjectURL(file);
+            video.load();
+
+            setStatus("動画を読み込みました。解析ボタンを押してください。");
+
+        } catch (error) {
+            setStatus("動画選択エラー：" + error.message);
         }
-
-        if (dScoreElement) dScoreElement.textContent = "-";
-        if (totalScoreElement) totalScoreElement.textContent = "-";
-
-        const feedback = document.getElementById("feedback");
-        if (feedback) feedback.innerHTML = "";
-
-        const phaseInfo = document.getElementById("phaseInfo");
-        if (phaseInfo) phaseInfo.textContent = "";
-
-        video.src = URL.createObjectURL(file);
-        video.load();
-
-        setStatus("動画を読み込みました。解析ボタンを押してください。");
     });
 }
 
 // ============================================================
-// 動画メタデータ
+// 動画イベント
 // ============================================================
 
 if (video) {
@@ -108,29 +136,12 @@ if (video) {
 }
 
 // ============================================================
-// フェーズ情報表示
+// フェーズ表示
 // ============================================================
 
 function showPhaseInfo(phase) {
-    let element = document.getElementById("phaseInfo");
-
-    if (!element) {
-        element = document.createElement("div");
-        element.id = "phaseInfo";
-        element.style.cssText = `
-            margin-top:10px;
-            padding:10px;
-            background:#eef6ff;
-            border-radius:8px;
-            line-height:1.7;
-        `;
-
-        if (canvas && canvas.parentElement) {
-            canvas.parentElement.appendChild(element);
-        } else {
-            document.body.appendChild(element);
-        }
-    }
+    const element = document.getElementById("phaseInfo");
+    if (!element) return;
 
     element.innerHTML = `
         <strong>動作フェーズ検出結果</strong><br>
@@ -150,78 +161,108 @@ function showPhaseInfo(phase) {
 
 if (detectBtn) {
     detectBtn.addEventListener("click", async () => {
+
+        // 最初に表示を更新する
+        setStatus("解析ボタンを受け付けました。準備中です...");
+
         if (!video || !video.src) {
             setStatus("先に動画を選択してください。");
             return;
         }
 
-        if (analyzing) return;
+        if (analyzing) {
+            setStatus("すでに解析中です。");
+            return;
+        }
 
-        currentAnalysisId++;
-        const analysisId = currentAnalysisId;
+        const analysisId = ++currentAnalysisId;
 
         analyzing = true;
         analysisFinished = false;
-
         detectBtn.disabled = true;
 
-        clearPoseFrames();
-
-        if (typeof clearPhase === "function") {
-            clearPhase();
-        }
-
-        if (dScoreElement) dScoreElement.textContent = "-";
-        if (totalScoreElement) totalScoreElement.textContent = "-";
-
-        const feedback = document.getElementById("feedback");
-        if (feedback) feedback.innerHTML = "";
-
-        const phaseInfo = document.getElementById("phaseInfo");
-        if (phaseInfo) phaseInfo.innerHTML = "";
-
-        setStatus("骨格検出を準備しています...");
-
         try {
+            // 必要な関数を確認
+            setStatus("必要なプログラムを確認しています...");
+            checkRequiredFunctions();
+
+            // 古いデータを消去
+            setStatus("解析データを初期化しています...");
+
+            clearPoseFrames();
+
+            if (typeof clearPhase === "function") {
+                clearPhase();
+            }
+
+            if (dScoreElement) dScoreElement.textContent = "-";
+            if (totalScoreElement) totalScoreElement.textContent = "-";
+
+            const feedback = document.getElementById("feedback");
+            if (feedback) feedback.textContent = "";
+
+            const phaseInfo = document.getElementById("phaseInfo");
+            if (phaseInfo) phaseInfo.textContent = "解析準備中";
+
+            // 動画を先頭に戻す
             video.pause();
             video.currentTime = 0;
 
-            await new Promise(resolve => {
-                if (video.readyState >= 2) {
-                    resolve();
-                } else {
-                    video.addEventListener("loadeddata", resolve, {
-                        once: true
-                    });
-                }
-            });
+            setStatus("動画データを読み込んでいます...");
+
+            if (video.readyState < 2) {
+                await new Promise((resolve, reject) => {
+                    const onLoaded = () => {
+                        cleanup();
+                        resolve();
+                    };
+
+                    const onError = () => {
+                        cleanup();
+                        reject(new Error("動画データを読み込めません。"));
+                    };
+
+                    const cleanup = () => {
+                        video.removeEventListener("loadeddata", onLoaded);
+                        video.removeEventListener("error", onError);
+                    };
+
+                    video.addEventListener("loadeddata", onLoaded);
+                    video.addEventListener("error", onError);
+                });
+            }
 
             if (analysisId !== currentAnalysisId) return;
 
             canvas.width = video.videoWidth || 640;
             canvas.height = video.videoHeight || 360;
 
-            // Pose解析を開始
-            const poseStart = startPose(video, canvas, ctx);
+            // 骨格検出を初期化
+            setStatus("AI骨格検出を初期化しています...");
 
-            // startPoseの初期化完了を待つ
-            await poseStart;
+            await startPose(video, canvas, ctx);
 
             if (analysisId !== currentAnalysisId) return;
 
-            setStatus("解析中です。動画が終わるまでお待ちください。");
+            // 動画再生
+            setStatus("動画を再生しながら骨格を検出しています...");
 
             await video.play();
 
         } catch (error) {
             console.error("解析開始エラー:", error);
 
-            setStatus("解析を開始できませんでした。動画を選び直してください。");
+            setStatus(
+                "解析開始エラー：" +
+                (error?.message || String(error))
+            );
 
             analyzing = false;
             detectBtn.disabled = false;
         }
     });
+} else {
+    setStatus("エラー：AI骨格検出開始ボタンが見つかりません。");
 }
 
 // ============================================================
@@ -233,11 +274,9 @@ async function finishAnalysis(analysisId) {
     if (analysisFinished) return;
 
     analysisFinished = true;
-
     setStatus("骨格検出の最終処理を待っています...");
 
     try {
-        // Poseの非同期処理完了を待つ
         if (typeof waitForPoseComplete === "function") {
             await waitForPoseComplete();
         }
@@ -245,8 +284,6 @@ async function finishAnalysis(analysisId) {
         if (analysisId !== currentAnalysisId) return;
 
         const frames = getPoseFrames();
-
-        console.log("解析終了時フレーム数:", frames.length);
 
         if (frames.length < 10) {
             setStatus(
@@ -258,7 +295,6 @@ async function finishAnalysis(analysisId) {
         setStatus("動作フェーズを判定しています...");
 
         const phase = detectPhases(frames);
-
         showPhaseInfo(phase);
 
         if (typeof showSelectedHandFrameTime === "function") {
@@ -269,19 +305,13 @@ async function finishAnalysis(analysisId) {
 
         const result = calculateDScore(frames, phase);
 
-        console.log("採点結果:", result);
-
-        if (
-            !result ||
-            !Number.isFinite(Number(result.score))
-        ) {
+        if (!result || !Number.isFinite(Number(result.score))) {
             setStatus("採点結果を取得できませんでした。");
             return;
         }
 
         if (dScoreElement) {
-            dScoreElement.textContent =
-                Number(result.score).toFixed(1);
+            dScoreElement.textContent = Number(result.score).toFixed(1);
         }
 
         if (typeof showFeedback === "function") {
@@ -296,17 +326,14 @@ async function finishAnalysis(analysisId) {
 
     } catch (error) {
         console.error("解析終了エラー:", error);
-        setStatus("解析中にエラーが発生しました。");
+        setStatus("解析終了エラー：" + error.message);
+
     } finally {
         analyzing = false;
         if (detectBtn) detectBtn.disabled = false;
     }
 }
 
-// ============================================================
-// 公開
-// ============================================================
-
 window.updateTotal = updateTotal;
 
-console.log("app.js Ver7.1 読み込み成功");
+console.log("app.js Ver7.2 読み込み成功");
