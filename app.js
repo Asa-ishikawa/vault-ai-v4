@@ -335,6 +335,37 @@ async function finishAnalysis(analysisId) {
 
         const result = calculateDScore(frames, phase);
 
+        // ========================================
+// フェーズ検出結果を評価結果に引き継ぐ
+// ========================================
+
+if (result) {
+
+    result.phase = phase;
+
+    if (!result.details) {
+        result.details = {};
+    }
+
+    if (!result.details.hand) {
+        result.details.hand = {};
+    }
+
+    // 着手位置の実測値
+    result.details.hand.measured =
+        phase.handMeasured;
+
+    // 着手候補数
+    result.details.hand.candidateCount =
+        Array.isArray(phase.handCandidates)
+            ? phase.handCandidates.length
+            : 0;
+
+    // 選択着手フレーム
+    result.details.hand.selectedFrame =
+        phase.handContact;
+}
+
         if (!result || !Number.isFinite(Number(result.score))) {
             setStatus("採点結果を取得できませんでした。");
             return;

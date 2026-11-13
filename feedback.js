@@ -304,7 +304,7 @@ function showFeedback(result) {
             title: "① 膝の伸び",
             detail: knee,
             digits: 1,
-            unit: "°",
+            unit: "",
             fallback: "膝の伸びを確認しましょう。"
         },
 
