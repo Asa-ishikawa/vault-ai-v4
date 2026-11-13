@@ -337,3 +337,11 @@ async function finishAnalysis(analysisId) {
 window.updateTotal = updateTotal;
 
 console.log("app.js Ver7.2 読み込み成功");
+
+const appDiagnostic = document.getElementById("appDiagnostic");
+
+if (appDiagnostic) {
+    appDiagnostic.textContent =
+        "app.js Ver7.2 読み込み成功！";
+    appDiagnostic.style.background = "#d8f3dc";
+}
