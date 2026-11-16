@@ -359,34 +359,59 @@ function onResults(results, video, canvas, ctx) {
         canvas.height
     );
 
-    // 跳び箱検出は人物の骨格検出とは独立して実行する
-if (window.VaultDetector) {
-    const result = window.VaultDetector.detect(video);
+// ========================================
+// 跳び箱検出 Ver8.2
+// ========================================
 
-    const diagnostic = document.getElementById("vaultDiagnostic");
+if (
+    typeof window.detectVaultBox === "function" &&
+    typeof window.drawVaultBoxDetection === "function"
+) {
 
-    if (diagnostic) {
-        diagnostic.textContent = result
-            ? "跳び箱検出：候補を発見"
-            : "跳び箱検出：候補なし";
-    }
+    // 跳び箱を検出
+    const result = window.detectVaultBox(video);
+
+    // 検出状況を表示
+    const diagnostic =
+        document.getElementById("vaultDiagnostic");
 
     if (result) {
-        window.VaultDetector.draw(video, canvas);
+
+        if (diagnostic) {
+            diagnostic.textContent =
+                "跳び箱検出：候補を発見";
+        }
+
+        // 検出結果をキャンバスに描画
+        window.drawVaultBoxDetection(
+            canvas,
+            result
+        );
+
+    } else {
+
+        if (diagnostic) {
+            diagnostic.textContent =
+                "跳び箱検出：候補なし";
+        }
     }
+
 } else {
-    const diagnostic = document.getElementById("vaultDiagnostic");
+
+    const diagnostic =
+        document.getElementById("vaultDiagnostic");
 
     if (diagnostic) {
-        diagnostic.textContent = "跳び箱検出：プログラム未読み込み";
+        diagnostic.textContent =
+            "跳び箱検出：関数が読み込まれていません";
     }
 }
 
+// 人物の骨格検出
 if (!results.poseLandmarks) {
     updatePoseDiagnostic(video);
     return;
 }
- 
 
     // 骨格の線を描画
     drawConnectors(
