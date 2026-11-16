@@ -436,7 +436,43 @@ if (!results.poseLandmarks) {
         }
     );
 
+// ========================================
+// STEP 11 左右の手首を強調表示
+// ========================================
 
+// 左手首：赤色
+if (isValidPoint(leftWrist)) {
+    ctx.beginPath();
+    ctx.arc(
+        leftWrist.x * canvas.width,
+        leftWrist.y * canvas.height,
+        12,
+        0,
+        Math.PI * 2
+    );
+    ctx.fillStyle = "#ff3333";
+    ctx.fill();
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = "#ffffff";
+    ctx.stroke();
+}
+
+// 右手首：青色
+if (isValidPoint(rightWrist)) {
+    ctx.beginPath();
+    ctx.arc(
+        rightWrist.x * canvas.width,
+        rightWrist.y * canvas.height,
+        12,
+        0,
+        Math.PI * 2
+    );
+    ctx.fillStyle = "#3399ff";
+    ctx.fill();
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = "#ffffff";
+    ctx.stroke();
+}
 
 
     // 座標を保存
