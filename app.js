@@ -379,6 +379,8 @@ if (vaultDiagnostic && leftHand && rightHand) {
     vaultDiagnostic.textContent =
         "左右の手首の座標を取得できませんでした";
 }
+// Dスコアを計算
+const result = calculateDScore(frames, phase);
 
 // ========================================
 // フェーズ検出結果を評価結果に引き継ぐ
