@@ -353,12 +353,17 @@ if (
     );
 }
 
+
 // ========================================
-// STEP 8 左右の手首の座標を画面表示
+// STEP 8 着手位置の座標診断
 // ========================================
 
 const vaultDiagnostic =
     document.getElementById("vaultDiagnostic");
+
+const box =
+    handContactFrame &&
+    handContactFrame.vaultBox;
 
 const leftHand =
     handContactFrame &&
@@ -368,19 +373,39 @@ const rightHand =
     handContactFrame &&
     handContactFrame.rightHandPositionRelativeToVault;
 
-if (vaultDiagnostic && leftHand && rightHand) {
+const centerHand =
+    handContactFrame &&
+    handContactFrame.handPositionRelativeToVault;
+
+if (vaultDiagnostic) {
+    const formatPoint = (point) => {
+        if (!point ||
+            !Number.isFinite(point.x) ||
+            !Number.isFinite(point.y)) {
+            return "取得できません";
+        }
+
+        return `X=${point.x.toFixed(3)} / Y=${point.y.toFixed(3)}`;
+    };
+
+    const formatBox = (value) => {
+        if (!value) return "検出できません";
+
+        return `X=${value.x.toFixed(3)} / Y=${value.y.toFixed(3)}
+幅=${value.width.toFixed(3)} / 高さ=${value.height.toFixed(3)}`;
+    };
 
     vaultDiagnostic.textContent =
-        `左手 X=${leftHand.x.toFixed(3)} / Y=${leftHand.y.toFixed(3)}
-         ｜右手 X=${rightHand.x.toFixed(3)} / Y=${rightHand.y.toFixed(3)}`;
-
-} else if (vaultDiagnostic) {
-
-    vaultDiagnostic.textContent =
-        "左右の手首の座標を取得できませんでした";
+        `【着手位置診断】
+跳び箱：${formatBox(box)}
+左手：${formatPoint(leftHand)}
+右手：${formatPoint(rightHand)}
+手の中心：${formatPoint(centerHand)}`;
 }
+
 // Dスコアを計算
 const result = calculateDScore(frames, phase);
+
 
 // ========================================
 // フェーズ検出結果を評価結果に引き継ぐ
