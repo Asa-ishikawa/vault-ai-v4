@@ -3845,7 +3845,6 @@ function evaluateHandPlacement(frame) {
         };
     }
 
-    // 天板を基準にした左右の手首座標
     const left = frame.leftHandPositionRelativeToVault;
     const right = frame.rightHandPositionRelativeToVault;
 
@@ -3864,18 +3863,14 @@ function evaluateHandPlacement(frame) {
         };
     }
 
-    // =========================================
-    // 着手位置の評価範囲
-    // 左から右へ進む動画を想定
-    // =========================================
+    // 目標位置：中央よりさらに奥側
+    const TARGET_MIN = 0.75;
+    const TARGET_MAX = 0.90;
 
-    const TARGET_MIN = 0.65;
-    const TARGET_MAX = 0.85;
+    // 評価可能な範囲
+    const OUTER_MIN = 0.60;
+    const OUTER_MAX = 0.98;
 
-    const OUTER_MIN = 0.50;
-    const OUTER_MAX = 1.00;
-
-    // 左右それぞれの位置を判定
     const leftTarget =
         left.x >= TARGET_MIN && left.x <= TARGET_MAX;
 
@@ -3888,32 +3883,21 @@ function evaluateHandPlacement(frame) {
     const rightOuter =
         right.x >= OUTER_MIN && right.x <= OUTER_MAX;
 
-    // 左右の中心位置
     const x = (left.x + right.x) / 2;
     const y = (left.y + right.y) / 2;
 
-    let score = 0;
-    let text = "";
-
-    // =========================================
-    // 採点
-    // =========================================
+    let score;
+    let text;
 
     if (leftTarget && rightTarget) {
-
         score = 2;
-        text = "着手位置：左右とも進行方向の奥寄りです（2点）。";
-
+        text = "着手位置：左右とも目標位置（奥寄り）です（2点）。";
     } else if (leftOuter && rightOuter) {
-
         score = 1;
         text = "着手位置：天板上ですが、目標位置から外れています（1点）。";
-
     } else {
-
         score = 0;
-        text = "着手位置：左右の手首が評価範囲から外れています（0点）。";
-
+        text = "着手位置：評価範囲から外れています（0点）。";
     }
 
     return {
@@ -3927,7 +3911,6 @@ function evaluateHandPlacement(frame) {
         text: text
     };
 }
-
 
 
 // ============================================================
