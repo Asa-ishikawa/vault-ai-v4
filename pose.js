@@ -360,32 +360,34 @@ function onResults(results, video, canvas, ctx) {
     );
 
 // ========================================
-// 跳び箱検出 Ver8.2
+// 跳び箱検出・位置情報取得 Ver8.3
 // ========================================
+
+let vaultBoxResult = null;
 
 if (
     typeof window.detectVaultBox === "function" &&
     typeof window.drawVaultBoxDetection === "function"
 ) {
 
-    // 跳び箱を検出
-    const result = window.detectVaultBox(video);
+    vaultBoxResult = window.detectVaultBox(video);
 
-    // 検出状況を表示
     const diagnostic =
         document.getElementById("vaultDiagnostic");
 
-    if (result) {
+    if (
+        vaultBoxResult &&
+        vaultBoxResult.detected === true
+    ) {
 
         if (diagnostic) {
             diagnostic.textContent =
-                "跳び箱検出：候補を発見";
+                "跳び箱検出：成功（天板位置を取得）";
         }
 
-        // 検出結果をキャンバスに描画
         window.drawVaultBoxDetection(
             canvas,
-            result
+            vaultBoxResult
         );
 
     } else {
@@ -475,6 +477,18 @@ if (!results.poseLandmarks) {
     const frameData = {
         frame: frameCount,
         time: Number(video.currentTime),
+
+            // 跳び箱の天板位置
+    vaultBox: (
+        vaultBoxResult &&
+        vaultBoxResult.detected
+    ) ? {
+        x: vaultBoxResult.normalized.x,
+        y: vaultBoxResult.normalized.y,
+        width: vaultBoxResult.normalized.width,
+        height: vaultBoxResult.normalized.height,
+        confidence: vaultBoxResult.confidence
+    } : null,
 
         landmarks: landmarks,
 
