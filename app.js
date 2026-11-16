@@ -354,38 +354,33 @@ if (
 }
 
 // ========================================
-// STEP 6 着手位置の取得結果を画面表示
+// STEP 8 左右の手首の座標を画面表示
 // ========================================
 
 const vaultDiagnostic =
     document.getElementById("vaultDiagnostic");
 
-if (
-    vaultDiagnostic &&
-    phase.handPositionRelativeToVault
-) {
-    const hand = phase.handPositionRelativeToVault;
+const leftHand =
+    handContactFrame &&
+    handContactFrame.leftHandPositionRelativeToVault;
+
+const rightHand =
+    handContactFrame &&
+    handContactFrame.rightHandPositionRelativeToVault;
+
+if (vaultDiagnostic && leftHand && rightHand) {
 
     vaultDiagnostic.textContent =
-        `着手位置取得成功：X=${hand.x.toFixed(3)} / Y=${hand.y.toFixed(3)}`;
+        `左手 X=${leftHand.x.toFixed(3)} / Y=${leftHand.y.toFixed(3)}
+         ｜右手 X=${rightHand.x.toFixed(3)} / Y=${rightHand.y.toFixed(3)}`;
 
 } else if (vaultDiagnostic) {
 
     vaultDiagnostic.textContent =
-        "着手位置：取得できませんでした";
+        "左右の手首の座標を取得できませんでした";
 }
 
-        showPhaseInfo(phase);
-
-        if (typeof showSelectedHandFrameTime === "function") {
-            showSelectedHandFrameTime(phase.handContact);
-        }
-
-        setStatus("採点しています...");
-
-        const result = calculateDScore(frames, phase);
-
-        // ========================================
+// ========================================
 // フェーズ検出結果を評価結果に引き継ぐ
 // ========================================
 
