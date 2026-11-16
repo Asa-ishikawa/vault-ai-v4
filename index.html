@@ -210,6 +210,27 @@
 <script src="utils.js?v=5.9"></script>
 <script src="phase.js?v=7.0"></script>
 <script src="vaultDetector.js?v=8.1"></script>
+<script>
+document.addEventListener("DOMContentLoaded", function() {
+
+    const diagnostic =
+        document.getElementById("vaultDiagnostic");
+
+    if (!diagnostic) return;
+
+    if (
+        typeof window.detectVaultBox === "function" &&
+        typeof window.drawVaultBoxDetection === "function"
+    ) {
+        diagnostic.textContent =
+            "跳び箱検出プログラム：読み込み成功";
+    } else {
+        diagnostic.textContent =
+            "跳び箱検出プログラム：読み込み失敗";
+    }
+
+});
+</script>
 <script src="score.js?v=6.5"></script>
 <script src="feedback.js?v=6.4"></script>
 <script src="app.js?v=7.2"></script>
