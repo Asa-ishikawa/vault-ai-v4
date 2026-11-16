@@ -3838,169 +3838,65 @@ function round3(value) {
 
 function evaluateHandPlacement(frame) {
 
-    const landmarks =
-        getLandmarks(frame);
-
-
-    if (
-        !landmarks ||
-        landmarks.length < 17
-    ) {
-
+    if (!frame) {
         return {
-
             score: 0,
-
-            text:
-                "原因：骨格データを取得できません。"
-
+            text: "原因：フレームデータを取得できません。"
         };
-
     }
 
+    // pose.jsで計算した天板基準の相対座標を取得
+    const left = frame.leftHandPositionRelativeToVault;
+    const right = frame.rightHandPositionRelativeToVault;
 
-    const left =
-        landmarks[15];
-
-    const right =
-        landmarks[16];
-
-
-    if (
-        !left ||
-        !right ||
-        !Number.isFinite(left.x) ||
-        !Number.isFinite(left.y) ||
-        !Number.isFinite(right.x) ||
-        !Number.isFinite(right.y)
-    ) {
-
-        return {
-
-            score: 0,
-
-            text:
-                "原因：左右の手首を検出できません。"
-
-        };
-
-    }
-
-
-    // 左右の手首の中心
-
-    const x =
-        (left.x + right.x) / 2;
-
-    const y =
-        (left.y + right.y) / 2;
-
-
-    const target =
-        window.HAND_TARGET_ZONE;
-
-    const outer =
-        window.HAND_OUTER_ZONE;
-
-
-    if (
-        !target ||
-        !outer
-    ) {
-
-        return {
-
-            score: 0,
-
-            x,
-
-            y,
-
-            text:
-                "原因：着手位置の評価範囲が未設定です。"
-
-        };
-
-    }
-
-
-    function inside(point, zone) {
-
+    function validPoint(point) {
         return (
-
-            point.x >= zone.xMin &&
-
-            point.x <= zone.xMax &&
-
-            point.y >= zone.yMin &&
-
-            point.y <= zone.yMax
-
+            point &&
+            Number.isFinite(point.x) &&
+            Number.isFinite(point.y)
         );
-
     }
 
-
-    const point = {
-        x,
-        y
-    };
-
-
-    if (
-        inside(point, target)
-    ) {
-
+    if (!validPoint(left) || !validPoint(right)) {
         return {
-
-            score: 2,
-
-            x,
-
-            y,
-
-            text:
-                `着手位置：目標範囲内（2点） x=${x.toFixed(3)}, y=${y.toFixed(3)}`
-
+            score: 0,
+            text: "原因：左右の手首の天板基準座標を取得できません。"
         };
-
     }
 
+    // 天板の横方向の範囲内か確認
+    const leftInside = left.x >= 0 && left.x <= 1;
+    const rightInside = right.x >= 0 && right.x <= 1;
 
-    if (
-        inside(point, outer)
-    ) {
+    const x = (left.x + right.x) / 2;
+    const y = (left.y + right.y) / 2;
 
-        return {
+    let score;
+    let text;
 
-            score: 1,
-
-            x,
-
-            y,
-
-            text:
-                `着手位置：目標範囲外（1点） x=${x.toFixed(3)}, y=${y.toFixed(3)}`
-
-        };
-
+    if (leftInside && rightInside) {
+        score = 2;
+        text = "着手位置：左右の手首が天板の横方向範囲内です（2点）。";
+    } else if (leftInside || rightInside) {
+        score = 1;
+        text = "着手位置：片方の手首のみ天板の横方向範囲内です（1点）。";
+    } else {
+        score = 0;
+        text = "着手位置：左右の手首が天板の横方向範囲外です（0点）。";
     }
-
 
     return {
-
-        score: 0,
-
-        x,
-
-        y,
-
-        text:
-            `着手位置：設定範囲外（0点） x=${x.toFixed(3)}, y=${y.toFixed(3)}`
-
+        score: score,
+        x: x,
+        y: y,
+        leftX: left.x,
+        leftY: left.y,
+        rightX: right.x,
+        rightY: right.y,
+        text: text
     };
-
 }
+
 
 
 // ============================================================
