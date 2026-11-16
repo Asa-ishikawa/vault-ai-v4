@@ -3845,7 +3845,7 @@ function evaluateHandPlacement(frame) {
         };
     }
 
-    // pose.jsで計算した天板基準の相対座標を取得
+    // 天板を基準にした左右の手首座標
     const left = frame.leftHandPositionRelativeToVault;
     const right = frame.rightHandPositionRelativeToVault;
 
@@ -3864,25 +3864,56 @@ function evaluateHandPlacement(frame) {
         };
     }
 
-    // 天板の横方向の範囲内か確認
-    const leftInside = left.x >= 0 && left.x <= 1;
-    const rightInside = right.x >= 0 && right.x <= 1;
+    // =========================================
+    // 着手位置の評価範囲
+    // 左から右へ進む動画を想定
+    // =========================================
 
+    const TARGET_MIN = 0.65;
+    const TARGET_MAX = 0.85;
+
+    const OUTER_MIN = 0.50;
+    const OUTER_MAX = 1.00;
+
+    // 左右それぞれの位置を判定
+    const leftTarget =
+        left.x >= TARGET_MIN && left.x <= TARGET_MAX;
+
+    const rightTarget =
+        right.x >= TARGET_MIN && right.x <= TARGET_MAX;
+
+    const leftOuter =
+        left.x >= OUTER_MIN && left.x <= OUTER_MAX;
+
+    const rightOuter =
+        right.x >= OUTER_MIN && right.x <= OUTER_MAX;
+
+    // 左右の中心位置
     const x = (left.x + right.x) / 2;
     const y = (left.y + right.y) / 2;
 
-    let score;
-    let text;
+    let score = 0;
+    let text = "";
 
-    if (leftInside && rightInside) {
+    // =========================================
+    // 採点
+    // =========================================
+
+    if (leftTarget && rightTarget) {
+
         score = 2;
-        text = "着手位置：左右の手首が天板の横方向範囲内です（2点）。";
-    } else if (leftInside || rightInside) {
+        text = "着手位置：左右とも進行方向の奥寄りです（2点）。";
+
+    } else if (leftOuter && rightOuter) {
+
         score = 1;
-        text = "着手位置：片方の手首のみ天板の横方向範囲内です（1点）。";
+        text = "着手位置：天板上ですが、目標位置から外れています（1点）。";
+
     } else {
+
         score = 0;
-        text = "着手位置：左右の手首が天板の横方向範囲外です（0点）。";
+        text = "着手位置：左右の手首が評価範囲から外れています（0点）。";
+
     }
 
     return {
