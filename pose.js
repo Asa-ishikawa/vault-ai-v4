@@ -474,6 +474,27 @@ if (!results.poseLandmarks) {
     const leftAnkle = landmarks[27];
     const rightAnkle = landmarks[28];
 
+// ========================================
+// 手首と跳び箱の相対位置を計算
+// ========================================
+
+let handPositionRelativeToVault = null;
+
+if (
+    handPosition &&
+    vaultBoxResult &&
+    vaultBoxResult.detected &&
+    vaultBoxResult.normalized.width > 0 &&
+    vaultBoxResult.normalized.height > 0
+) {
+    const box = vaultBoxResult.normalized;
+
+    handPositionRelativeToVault = {
+        x: (handPosition.x - box.x) / box.width,
+        y: (handPosition.y - box.y) / box.height
+    };
+}
+
     const frameData = {
         frame: frameCount,
         time: Number(video.currentTime),
@@ -489,6 +510,10 @@ if (!results.poseLandmarks) {
         height: vaultBoxResult.normalized.height,
         confidence: vaultBoxResult.confidence
     } : null,
+
+    // 手首の跳び箱に対する相対位置
+handPositionRelativeToVault:
+    handPositionRelativeToVault,
 
         landmarks: landmarks,
 

@@ -325,6 +325,56 @@ async function finishAnalysis(analysisId) {
         setStatus("動作フェーズを判定しています...");
 
         const phase = detectPhases(frames);
+        // ========================================
+// STEP 5 着手フレームの相対位置取得
+// ========================================
+
+const handContactFrame = frames.find(frame =>
+    frame.frame === phase.handContact
+);
+
+if (
+    handContactFrame &&
+    handContactFrame.handPositionRelativeToVault
+) {
+    phase.handPositionRelativeToVault =
+        handContactFrame.handPositionRelativeToVault;
+
+    console.log(
+        "着手位置（跳び箱基準）:",
+        phase.handPositionRelativeToVault
+    );
+
+} else {
+    phase.handPositionRelativeToVault = null;
+
+    console.log(
+        "着手位置：取得できませんでした"
+    );
+}
+
+// ========================================
+// STEP 6 着手位置の取得結果を画面表示
+// ========================================
+
+const vaultDiagnostic =
+    document.getElementById("vaultDiagnostic");
+
+if (
+    vaultDiagnostic &&
+    phase.handPositionRelativeToVault
+) {
+    const hand = phase.handPositionRelativeToVault;
+
+    vaultDiagnostic.textContent =
+        `着手位置取得成功：X=${hand.x.toFixed(3)} / Y=${hand.y.toFixed(3)}`;
+
+} else if (vaultDiagnostic) {
+
+    vaultDiagnostic.textContent =
+        "着手位置：取得できませんでした";
+}
+
         showPhaseInfo(phase);
 
         if (typeof showSelectedHandFrameTime === "function") {
