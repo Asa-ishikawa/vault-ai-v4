@@ -359,10 +359,34 @@ function onResults(results, video, canvas, ctx) {
         canvas.height
     );
 
-    if (!results.poseLandmarks) {
-        updatePoseDiagnostic(video);
-        return;
+    // 跳び箱検出は人物の骨格検出とは独立して実行する
+if (window.VaultDetector) {
+    const result = window.VaultDetector.detect(video);
+
+    const diagnostic = document.getElementById("vaultDiagnostic");
+
+    if (diagnostic) {
+        diagnostic.textContent = result
+            ? "跳び箱検出：候補を発見"
+            : "跳び箱検出：候補なし";
     }
+
+    if (result) {
+        window.VaultDetector.draw(video, canvas);
+    }
+} else {
+    const diagnostic = document.getElementById("vaultDiagnostic");
+
+    if (diagnostic) {
+        diagnostic.textContent = "跳び箱検出：プログラム未読み込み";
+    }
+}
+
+if (!results.poseLandmarks) {
+    updatePoseDiagnostic(video);
+    return;
+}
+ 
 
     // 骨格の線を描画
     drawConnectors(
@@ -386,19 +410,7 @@ function onResults(results, video, canvas, ctx) {
     );
 
 
-// ========================================
-// Ver8.0 跳び箱候補検出
-// ========================================
 
-if (window.VaultDetector) {
-
-    console.log("跳び箱検出処理を実行中");
-    window.VaultDetector.draw(
-        video,
-        canvas
-    );
-
-}
 
     // 座標を保存
     const landmarks = results.poseLandmarks.map(point => ({
