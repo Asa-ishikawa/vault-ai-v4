@@ -479,9 +479,10 @@ if (!results.poseLandmarks) {
 // ========================================
 
 let handPositionRelativeToVault = null;
+let leftHandPositionRelativeToVault = null;
+let rightHandPositionRelativeToVault = null;
 
 if (
-    handPosition &&
     vaultBoxResult &&
     vaultBoxResult.detected &&
     vaultBoxResult.normalized.width > 0 &&
@@ -489,10 +490,38 @@ if (
 ) {
     const box = vaultBoxResult.normalized;
 
-    handPositionRelativeToVault = {
-        x: (handPosition.x - box.x) / box.width,
-        y: (handPosition.y - box.y) / box.height
-    };
+    const leftWrist = results.poseLandmarks[15];
+    const rightWrist = results.poseLandmarks[16];
+
+    if (isValidPoint(leftWrist)) {
+        leftHandPositionRelativeToVault = {
+            x: (leftWrist.x - box.x) / box.width,
+            y: (leftWrist.y - box.y) / box.height
+        };
+    }
+
+    if (isValidPoint(rightWrist)) {
+        rightHandPositionRelativeToVault = {
+            x: (rightWrist.x - box.x) / box.width,
+            y: (rightWrist.y - box.y) / box.height
+        };
+    }
+
+    if (
+        leftHandPositionRelativeToVault &&
+        rightHandPositionRelativeToVault
+    ) {
+        handPositionRelativeToVault = {
+            x: (
+                leftHandPositionRelativeToVault.x +
+                rightHandPositionRelativeToVault.x
+            ) / 2,
+            y: (
+                leftHandPositionRelativeToVault.y +
+                rightHandPositionRelativeToVault.y
+            ) / 2
+        };
+    }
 }
 
     const frameData = {
@@ -510,6 +539,12 @@ if (
         height: vaultBoxResult.normalized.height,
         confidence: vaultBoxResult.confidence
     } : null,
+
+leftHandPositionRelativeToVault:
+    leftHandPositionRelativeToVault,
+
+rightHandPositionRelativeToVault:
+    rightHandPositionRelativeToVault,
 
     // 手首の跳び箱に対する相対位置
 handPositionRelativeToVault:
