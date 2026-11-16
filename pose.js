@@ -385,6 +385,21 @@ function onResults(results, video, canvas, ctx) {
         }
     );
 
+
+// ========================================
+// Ver8.0 跳び箱候補検出
+// ========================================
+
+if (window.VaultDetector) {
+
+    console.log("跳び箱検出処理を実行中");
+    window.VaultDetector.draw(
+        video,
+        canvas
+    );
+
+}
+
     // 座標を保存
     const landmarks = results.poseLandmarks.map(point => ({
         x: Number(point.x),
