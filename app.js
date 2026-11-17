@@ -1,12 +1,28 @@
 
 // ============================================================
 // 跳び箱AI採点システム
-// app.js Ver7.2
+// app.js Ver9.0
 // 完全置き換え版
-// ・解析開始時のエラーを画面に表示
-// ・Pose関連関数の読み込み確認
-// ・動画再生開始を優先して診断
-// ・解析終了後に採点
+//
+// 既存機能
+// ・MediaPipe骨格検出
+// ・動作フェーズ検出
+// ・跳び箱検出
+// ・Dスコア計算
+// ・AI評価コメント
+// ・Eスコアと総合得点
+//
+// Ver9.0追加機能
+// ・生徒別採点結果保存
+// ・保存結果一覧
+// ・保存結果の個別削除
+//
+// ※score.jsの採点ロジックは変更しない
+// ============================================================
+
+
+// ============================================================
+// 基本要素
 // ============================================================
 
 const videoFile = document.getElementById("videoFile");
@@ -19,32 +35,89 @@ const dScoreElement = document.getElementById("dScore");
 const eScoreElement = document.getElementById("eScore");
 const totalScoreElement = document.getElementById("totalScore");
 
+const studentNameElement = document.getElementById("studentName");
+const skillElement = document.getElementById("skill");
+
+const saveResultBtn = document.getElementById("saveResultBtn");
+const saveStatusElement = document.getElementById("saveStatus");
+const savedResultsElement = document.getElementById("savedResults");
+const refreshResultsBtn = document.getElementById("refreshResultsBtn");
+
 const ctx = canvas ? canvas.getContext("2d") : null;
 
 let analyzing = false;
 let analysisFinished = false;
 let currentAnalysisId = 0;
 
+// 最新の採点結果
+let currentScoringResult = null;
+
+
+// ============================================================
+// 状態表示
+// ============================================================
+
 function setStatus(message) {
+
     if (statusElement) {
         statusElement.textContent = message;
     }
+
 }
+
+
+// ============================================================
+// 診断表示
+// ============================================================
+
+function setAppDiagnostic(message, success = true) {
+
+    const element = document.getElementById("appDiagnostic");
+
+    if (!element) return;
+
+    element.textContent = message;
+
+    element.style.background = success
+        ? "#d8f3dc"
+        : "#fff3cd";
+
+}
+
+
+// ============================================================
+// 総合得点
+// ============================================================
 
 function updateTotal() {
-    const d = Number(dScoreElement?.textContent);
-    const e = Number(eScoreElement?.value ?? eScoreElement?.textContent);
 
-    if (Number.isFinite(d) && Number.isFinite(e) && totalScoreElement) {
-        totalScoreElement.textContent = (d + e).toFixed(1);
+    const d = Number(dScoreElement?.textContent);
+
+    const e = Number(
+        eScoreElement?.value ??
+        eScoreElement?.textContent
+    );
+
+    if (
+        Number.isFinite(d) &&
+        Number.isFinite(e) &&
+        totalScoreElement
+    ) {
+
+        totalScoreElement.textContent =
+            (d + e).toFixed(1);
+
     }
+
 }
+
 
 // ============================================================
 // 必要な関数の確認
 // ============================================================
 
 function checkRequiredFunctions() {
+
     const required = [
         "startPose",
         "clearPoseFrames",
@@ -54,35 +127,74 @@ function checkRequiredFunctions() {
     ];
 
     const missing = required.filter(name => {
+
         return typeof window[name] !== "function" &&
                typeof globalThis[name] !== "function";
+
     });
 
     if (missing.length > 0) {
+
         throw new Error(
-            "必要な関数が読み込まれていません：" + missing.join(", ")
+            "必要な関数が読み込まれていません：" +
+            missing.join(", ")
         );
+
     }
 
-    if (typeof window.Pose !== "function" &&
-        typeof Pose !== "function") {
-        throw new Error("MediaPipe Poseが読み込まれていません。");
+    if (
+        typeof window.Pose !== "function" &&
+        typeof Pose !== "function"
+    ) {
+
+        throw new Error(
+            "MediaPipe Poseが読み込まれていません。"
+        );
+
     }
+
 }
+
+
+// ============================================================
+// 保存ボタンの状態
+// ============================================================
+
+function setSaveButtonEnabled(enabled) {
+
+    if (saveResultBtn) {
+        saveResultBtn.disabled = !enabled;
+    }
+
+}
+
 
 // ============================================================
 // 動画選択
 // ============================================================
 
 if (videoFile) {
+
     videoFile.addEventListener("change", () => {
+
         try {
+
             const file = videoFile.files?.[0];
+
             if (!file) return;
 
             currentAnalysisId++;
+
             analyzing = false;
             analysisFinished = false;
+            currentScoringResult = null;
+
+            setSaveButtonEnabled(false);
+
+            if (saveStatusElement) {
+                saveStatusElement.textContent =
+                    "新しい動画を選択しました。解析後に保存できます。";
+            }
 
             if (typeof clearPoseFrames === "function") {
                 clearPoseFrames();
@@ -92,55 +204,95 @@ if (videoFile) {
                 clearPhase();
             }
 
-            if (dScoreElement) dScoreElement.textContent = "-";
-            if (totalScoreElement) totalScoreElement.textContent = "-";
+            if (dScoreElement) {
+                dScoreElement.textContent = "-";
+            }
 
-            const feedback = document.getElementById("feedback");
-            if (feedback) feedback.textContent = "";
+            if (totalScoreElement) {
+                totalScoreElement.textContent = "-";
+            }
 
-            const phaseInfo = document.getElementById("phaseInfo");
-            if (phaseInfo) phaseInfo.textContent = "未解析";
+            const feedback =
+                document.getElementById("feedback");
+
+            if (feedback) {
+                feedback.textContent = "";
+            }
+
+            const phaseInfo =
+                document.getElementById("phaseInfo");
+
+            if (phaseInfo) {
+                phaseInfo.textContent = "未解析";
+            }
 
             video.src = URL.createObjectURL(file);
             video.load();
 
-            setStatus("動画を読み込みました。解析ボタンを押してください。");
+            setStatus(
+                "動画を読み込みました。解析ボタンを押してください。"
+            );
 
         } catch (error) {
-            setStatus("動画選択エラー：" + error.message);
+
+            setStatus(
+                "動画選択エラー：" + error.message
+            );
+
         }
+
     });
+
 }
+
 
 // ============================================================
 // 動画イベント
 // ============================================================
 
 if (video) {
+
     video.addEventListener("loadedmetadata", () => {
+
         if (canvas) {
+
             canvas.width = video.videoWidth || 640;
             canvas.height = video.videoHeight || 360;
+
         }
+
     });
 
+
     video.addEventListener("ended", () => {
+
         if (analyzing) {
             finishAnalysis(currentAnalysisId);
         }
+
     });
 
+
     video.addEventListener("error", () => {
-        setStatus("動画の読み込みに失敗しました。別の動画を選択してください。");
+
+        setStatus(
+            "動画の読み込みに失敗しました。別の動画を選択してください。"
+        );
+
     });
+
 }
+
 
 // ============================================================
 // フェーズ表示
 // ============================================================
 
 function showPhaseInfo(phase) {
-    const element = document.getElementById("phaseInfo");
+
+    const element =
+        document.getElementById("phaseInfo");
+
     if (!element) return;
 
     element.innerHTML = `
@@ -149,50 +301,90 @@ function showPhaseInfo(phase) {
         着手フレーム：${phase.handContact ?? "-"}<br>
         腰最高点フレーム：${phase.highestHip ?? "-"}<br>
         着地フレーム：${phase.landing ?? "-"}<br>
-        着手候補数：${Array.isArray(phase.handCandidates)
-            ? phase.handCandidates.length
-            : "-"}
+        着手候補数：${
+            Array.isArray(phase.handCandidates)
+                ? phase.handCandidates.length
+                : "-"
+        }
     `;
+
 }
+
 
 // ============================================================
 // 解析開始
 // ============================================================
 
 if (detectBtn) {
-    detectBtn.addEventListener("click", async () => {
-        document.getElementById("appDiagnostic").textContent =
-    "診断：AI骨格検出ボタンが押されました！";
 
-        // 最初に表示を更新する
-        setStatus("解析ボタンを受け付けました。準備中です...");
+    detectBtn.addEventListener("click", async () => {
+
+        setAppDiagnostic(
+            "診断：AI骨格検出ボタンが押されました！"
+        );
+
+        setStatus(
+            "解析ボタンを受け付けました。準備中です..."
+        );
+
 
         if (!video || !video.src) {
-            setStatus("先に動画を選択してください。");
+
+            setStatus(
+                "先に動画を選択してください。"
+            );
+
             return;
+
         }
 
+
         if (analyzing) {
-            setStatus("すでに解析中です。");
+
+            setStatus(
+                "すでに解析中です。"
+            );
+
             return;
+
         }
+
 
         const analysisId = ++currentAnalysisId;
 
         analyzing = true;
         analysisFinished = false;
+        currentScoringResult = null;
+
+        setSaveButtonEnabled(false);
+
         detectBtn.disabled = true;
 
+
         try {
+
+            // --------------------------------------------
             // 必要な関数を確認
-            setStatus("必要なプログラムを確認しています...");
+            // --------------------------------------------
+
+            setStatus(
+                "必要なプログラムを確認しています..."
+            );
+
             checkRequiredFunctions();
 
-            document.getElementById("appDiagnostic").textContent =
-    "診断：必要なプログラムの確認が完了しました！";
+            setAppDiagnostic(
+                "診断：必要なプログラムの確認が完了しました！"
+            );
 
+
+            // --------------------------------------------
             // 古いデータを消去
-            setStatus("解析データを初期化しています...");
+            // --------------------------------------------
+
+            setStatus(
+                "解析データを初期化しています..."
+            );
 
             clearPoseFrames();
 
@@ -200,281 +392,1051 @@ if (detectBtn) {
                 clearPhase();
             }
 
-            if (dScoreElement) dScoreElement.textContent = "-";
-            if (totalScoreElement) totalScoreElement.textContent = "-";
+            if (dScoreElement) {
+                dScoreElement.textContent = "-";
+            }
 
-            const feedback = document.getElementById("feedback");
-            if (feedback) feedback.textContent = "";
+            if (totalScoreElement) {
+                totalScoreElement.textContent = "-";
+            }
 
-            const phaseInfo = document.getElementById("phaseInfo");
-            if (phaseInfo) phaseInfo.textContent = "解析準備中";
+            const feedback =
+                document.getElementById("feedback");
 
+            if (feedback) {
+                feedback.textContent = "";
+            }
+
+            const phaseInfo =
+                document.getElementById("phaseInfo");
+
+            if (phaseInfo) {
+                phaseInfo.textContent = "解析準備中";
+            }
+
+
+            // --------------------------------------------
             // 動画を先頭に戻す
+            // --------------------------------------------
+
             video.pause();
             video.currentTime = 0;
 
-            setStatus("動画データを読み込んでいます...");
+            setStatus(
+                "動画データを読み込んでいます..."
+            );
+
+
+            // --------------------------------------------
+            // 動画データ読み込み待ち
+            // --------------------------------------------
 
             if (video.readyState < 2) {
-    setStatus("動画データを再読み込みしています...");
 
-    await new Promise((resolve, reject) => {
-        let completed = false;
+                setStatus(
+                    "動画データを再読み込みしています..."
+                );
 
-        const finish = (error = null) => {
-            if (completed) return;
-            completed = true;
+                await new Promise((resolve, reject) => {
 
-            clearTimeout(timer);
+                    let completed = false;
 
-            video.removeEventListener("loadeddata", onLoaded);
-            video.removeEventListener("canplay", onLoaded);
-            video.removeEventListener("error", onError);
+                    const finish = (error = null) => {
 
-            if (error) reject(error);
-            else resolve();
-        };
+                        if (completed) return;
 
-        const onLoaded = () => {
-            finish();
-        };
+                        completed = true;
 
-        const onError = () => {
-            finish(new Error("動画データの読み込みに失敗しました。"));
-        };
+                        clearTimeout(timer);
 
-        const timer = setTimeout(() => {
-            finish(new Error("動画の読み込みが10秒以内に完了しませんでした。"));
-        }, 10000);
+                        video.removeEventListener(
+                            "loadeddata",
+                            onLoaded
+                        );
 
-        video.addEventListener("loadeddata", onLoaded);
-        video.addEventListener("canplay", onLoaded);
-        video.addEventListener("error", onError);
+                        video.removeEventListener(
+                            "canplay",
+                            onLoaded
+                        );
 
-        // すでに読み込みが完了している場合
-        if (video.readyState >= 2) {
-            finish();
-        }
-    });
-}
+                        video.removeEventListener(
+                            "error",
+                            onError
+                        );
+
+                        if (error) {
+                            reject(error);
+                        } else {
+                            resolve();
+                        }
+
+                    };
+
+                    const onLoaded = () => {
+                        finish();
+                    };
+
+                    const onError = () => {
+
+                        finish(
+                            new Error(
+                                "動画データの読み込みに失敗しました。"
+                            )
+                        );
+
+                    };
+
+                    const timer = setTimeout(() => {
+
+                        finish(
+                            new Error(
+                                "動画の読み込みが10秒以内に完了しませんでした。"
+                            )
+                        );
+
+                    }, 10000);
+
+
+                    video.addEventListener(
+                        "loadeddata",
+                        onLoaded
+                    );
+
+                    video.addEventListener(
+                        "canplay",
+                        onLoaded
+                    );
+
+                    video.addEventListener(
+                        "error",
+                        onError
+                    );
+
+
+                    if (video.readyState >= 2) {
+                        finish();
+                    }
+
+                });
+
+            }
+
 
             if (analysisId !== currentAnalysisId) return;
+
+
+            // --------------------------------------------
+            // Canvas設定
+            // --------------------------------------------
 
             canvas.width = video.videoWidth || 640;
             canvas.height = video.videoHeight || 360;
 
-            // 骨格検出を初期化
-            setStatus("AI骨格検出を初期化しています...");
-            document.getElementById("appDiagnostic").textContent =
-    "診断：Pose初期化を開始しました...";
+
+            // --------------------------------------------
+            // 骨格検出初期化
+            // --------------------------------------------
+
+            setStatus(
+                "AI骨格検出を初期化しています..."
+            );
+
+            setAppDiagnostic(
+                "診断：Pose初期化を開始しました..."
+            );
 
             await startPose(video, canvas, ctx);
-            document.getElementById("appDiagnostic").textContent =
-    "診断：Pose初期化が完了しました！";
+
+            setAppDiagnostic(
+                "診断：Pose初期化が完了しました！"
+            );
+
 
             if (analysisId !== currentAnalysisId) return;
 
+
+            // --------------------------------------------
             // 動画再生
-            setStatus("動画を再生しながら骨格を検出しています...");
+            // --------------------------------------------
+
+            setStatus(
+                "動画を再生しながら骨格を検出しています..."
+            );
 
             await video.play();
 
         } catch (error) {
-            console.error("解析開始エラー:", error);
+
+            console.error(
+                "解析開始エラー:",
+                error
+            );
 
             setStatus(
                 "解析開始エラー：" +
                 (error?.message || String(error))
             );
 
+            setAppDiagnostic(
+                "解析開始エラー：" + error.message,
+                false
+            );
+
             analyzing = false;
+
             detectBtn.disabled = false;
+
         }
+
     });
+
 } else {
-    setStatus("エラー：AI骨格検出開始ボタンが見つかりません。");
+
+    setStatus(
+        "エラー：AI骨格検出開始ボタンが見つかりません。"
+    );
+
 }
+
 
 // ============================================================
 // 解析終了
 // ============================================================
 
 async function finishAnalysis(analysisId) {
+
     if (analysisId !== currentAnalysisId) return;
     if (analysisFinished) return;
 
     analysisFinished = true;
-    setStatus("骨格検出の最終処理を待っています...");
+
+    setStatus(
+        "骨格検出の最終処理を待っています..."
+    );
+
 
     try {
+
+        // --------------------------------------------
+        // Pose処理完了待ち
+        // --------------------------------------------
+
         if (typeof waitForPoseComplete === "function") {
             await waitForPoseComplete();
         }
 
         if (analysisId !== currentAnalysisId) return;
 
+
+        // --------------------------------------------
+        // フレーム取得
+        // --------------------------------------------
+
         const frames = getPoseFrames();
 
         if (frames.length < 10) {
+
             setStatus(
                 `骨格データが不足しています。取得フレーム数：${frames.length}`
             );
+
             return;
+
         }
 
-        setStatus("動作フェーズを判定しています...");
+
+        // --------------------------------------------
+        // フェーズ判定
+        // --------------------------------------------
+
+        setStatus(
+            "動作フェーズを判定しています..."
+        );
 
         const phase = detectPhases(frames);
-        // ========================================
-// STEP 5 着手フレームの相対位置取得
-// ========================================
 
-const handContactFrame = frames.find(frame =>
-    frame.frame === phase.handContact
-);
+        if (!phase) {
 
-if (
-    handContactFrame &&
-    handContactFrame.handPositionRelativeToVault
-) {
-    phase.handPositionRelativeToVault =
-        handContactFrame.handPositionRelativeToVault;
+            setStatus(
+                "動作フェーズを検出できませんでした。"
+            );
 
-    console.log(
-        "着手位置（跳び箱基準）:",
-        phase.handPositionRelativeToVault
-    );
+            return;
 
-} else {
-    phase.handPositionRelativeToVault = null;
-
-    console.log(
-        "着手位置：取得できませんでした"
-    );
-}
-
-
-// ========================================
-// STEP 8 着手位置の座標診断
-// ========================================
-
-const vaultDiagnostic =
-    document.getElementById("vaultDiagnostic");
-
-const box =
-    handContactFrame &&
-    handContactFrame.vaultBox;
-
-const leftHand =
-    handContactFrame &&
-    handContactFrame.leftHandPositionRelativeToVault;
-
-const rightHand =
-    handContactFrame &&
-    handContactFrame.rightHandPositionRelativeToVault;
-
-const centerHand =
-    handContactFrame &&
-    handContactFrame.handPositionRelativeToVault;
-
-if (vaultDiagnostic) {
-    const formatPoint = (point) => {
-        if (!point ||
-            !Number.isFinite(point.x) ||
-            !Number.isFinite(point.y)) {
-            return "取得できません";
         }
 
-        return `X=${point.x.toFixed(3)} / Y=${point.y.toFixed(3)}`;
-    };
 
-    const formatBox = (value) => {
-        if (!value) return "検出できません";
+        showPhaseInfo(phase);
 
-        return `X=${value.x.toFixed(3)} / Y=${value.y.toFixed(3)}
-幅=${value.width.toFixed(3)} / 高さ=${value.height.toFixed(3)}`;
-    };
 
-    vaultDiagnostic.textContent =
-        `【着手位置診断】
+        // ========================================
+        // 着手フレームの相対位置取得
+        // ========================================
+
+        const handContactFrame = frames.find(frame => {
+
+            return frame.frame === phase.handContact;
+
+        });
+
+
+        if (
+            handContactFrame &&
+            handContactFrame.handPositionRelativeToVault
+        ) {
+
+            phase.handPositionRelativeToVault =
+                handContactFrame.handPositionRelativeToVault;
+
+            console.log(
+                "着手位置（跳び箱基準）:",
+                phase.handPositionRelativeToVault
+            );
+
+        } else {
+
+            phase.handPositionRelativeToVault = null;
+
+            console.log(
+                "着手位置：取得できませんでした"
+            );
+
+        }
+
+
+        // ========================================
+        // 着手位置の座標診断
+        // ========================================
+
+        const vaultDiagnostic =
+            document.getElementById("vaultDiagnostic");
+
+        const box =
+            handContactFrame &&
+            handContactFrame.vaultBox;
+
+        const leftHand =
+            handContactFrame &&
+            handContactFrame.leftHandPositionRelativeToVault;
+
+        const rightHand =
+            handContactFrame &&
+            handContactFrame.rightHandPositionRelativeToVault;
+
+        const centerHand =
+            handContactFrame &&
+            handContactFrame.handPositionRelativeToVault;
+
+
+        if (vaultDiagnostic) {
+
+            const formatPoint = (point) => {
+
+                if (
+                    !point ||
+                    !Number.isFinite(point.x) ||
+                    !Number.isFinite(point.y)
+                ) {
+
+                    return "取得できません";
+
+                }
+
+                return (
+                    `X=${point.x.toFixed(3)} / Y=${point.y.toFixed(3)}`
+                );
+
+            };
+
+
+            const formatBox = (value) => {
+
+                if (!value) {
+                    return "検出できません";
+                }
+
+                return (
+                    `X=${value.x.toFixed(3)} / Y=${value.y.toFixed(3)}\n` +
+                    `幅=${value.width.toFixed(3)} / 高さ=${value.height.toFixed(3)}`
+                );
+
+            };
+
+
+            vaultDiagnostic.textContent =
+                `【着手位置診断】
 跳び箱：${formatBox(box)}
 左手：${formatPoint(leftHand)}
 右手：${formatPoint(rightHand)}
 手の中心：${formatPoint(centerHand)}`;
-}
 
-// Dスコアを計算
-const result = calculateDScore(frames, phase);
-
-
-// ========================================
-// フェーズ検出結果を評価結果に引き継ぐ
-// ========================================
-
-if (result) {
-
-    result.phase = phase;
-
-    if (!result.details) {
-        result.details = {};
-    }
-
-    if (!result.details.hand) {
-        result.details.hand = {};
-    }
-
-    // 着手位置の実測値
-    result.details.hand.measured =
-        phase.handMeasured;
-
-    // 着手候補数
-    result.details.hand.candidateCount =
-        Array.isArray(phase.handCandidates)
-            ? phase.handCandidates.length
-            : 0;
-
-    // 選択着手フレーム
-    result.details.hand.selectedFrame =
-        phase.handContact;
-}
-
-        if (!result || !Number.isFinite(Number(result.score))) {
-            setStatus("採点結果を取得できませんでした。");
-            return;
         }
+
+
+        // ========================================
+        // Dスコア計算
+        // ========================================
+
+        const result = calculateDScore(
+            frames,
+            phase
+        );
+
+
+        // ========================================
+        // フェーズ検出結果を評価結果に引き継ぐ
+        // ========================================
+
+        if (result) {
+
+            result.phase = phase;
+
+            if (!result.details) {
+                result.details = {};
+            }
+
+            if (!result.details.hand) {
+                result.details.hand = {};
+            }
+
+            // 着手位置の実測値
+            result.details.hand.measured =
+                phase.handMeasured;
+
+            // 着手候補数
+            result.details.hand.candidateCount =
+                Array.isArray(phase.handCandidates)
+                    ? phase.handCandidates.length
+                    : 0;
+
+            // 選択着手フレーム
+            result.details.hand.selectedFrame =
+                phase.handContact;
+
+        }
+
+
+        // --------------------------------------------
+        // 結果確認
+        // --------------------------------------------
+
+        if (
+            !result ||
+            !Number.isFinite(Number(result.score))
+        ) {
+
+            setStatus(
+                "採点結果を取得できませんでした。"
+            );
+
+            return;
+
+        }
+
+
+        // --------------------------------------------
+        // Dスコア表示
+        // --------------------------------------------
 
         if (dScoreElement) {
-            dScoreElement.textContent = Number(result.score).toFixed(1);
+
+            dScoreElement.textContent =
+                Number(result.score).toFixed(1);
+
         }
+
+
+        // --------------------------------------------
+        // AI評価コメント表示
+        // --------------------------------------------
 
         if (typeof showFeedback === "function") {
+
             showFeedback(result);
+
         }
 
+
+        // --------------------------------------------
+        // Eスコア・総合得点
+        // --------------------------------------------
+
         updateTotal();
+
+
+        // --------------------------------------------
+        // 最新結果を保持
+        // --------------------------------------------
+
+        currentScoringResult = result;
+
+        setSaveButtonEnabled(true);
+
+        if (saveStatusElement) {
+
+            saveStatusElement.textContent =
+                "解析完了。生徒名とEスコアを確認して保存してください。";
+
+        }
+
+
+        // --------------------------------------------
+        // 完了
+        // --------------------------------------------
 
         setStatus(
             `解析完了。骨格取得フレーム数：${frames.length}`
         );
 
+        setAppDiagnostic(
+            "Ver9.0：解析・採点が正常に完了しました！"
+        );
+
+
     } catch (error) {
-        console.error("解析終了エラー:", error);
-        setStatus("解析終了エラー：" + error.message);
+
+        console.error(
+            "解析終了エラー:",
+            error
+        );
+
+        setStatus(
+            "解析終了エラー：" + error.message
+        );
+
+        setAppDiagnostic(
+            "解析終了エラー：" + error.message,
+            false
+        );
 
     } finally {
+
         analyzing = false;
-        if (detectBtn) detectBtn.disabled = false;
+
+        if (detectBtn) {
+            detectBtn.disabled = false;
+        }
+
     }
+
 }
+
+
+// ============================================================
+// 日付取得
+// ============================================================
+
+function getTodayString() {
+
+    const now = new Date();
+
+    const year = now.getFullYear();
+
+    const month = String(
+        now.getMonth() + 1
+    ).padStart(2, "0");
+
+    const day = String(
+        now.getDate()
+    ).padStart(2, "0");
+
+    return `${year}-${month}-${day}`;
+
+}
+
+
+// ============================================================
+// 保存用の評価項目を作成
+// ============================================================
+
+function createSavedDetails(result) {
+
+    const details = result.details || {};
+
+    const keys = [
+        "knee",
+        "hip",
+        "hand",
+        "takeOff",
+        "landing"
+    ];
+
+    const labels = {
+        knee: "膝の伸び",
+        hip: "腰の位置",
+        hand: "着手位置",
+        takeOff: "両足踏切",
+        landing: "着地の安定"
+    };
+
+    const output = {};
+
+    keys.forEach(key => {
+
+        const item = details[key] || {};
+
+        output[key] = {
+
+            label: labels[key],
+
+            score: Number.isFinite(Number(item.score))
+                ? Number(item.score)
+                : 0,
+
+            value: item.value ?? null,
+
+            measured: item.measured ?? null,
+
+            text: item.text ?? "",
+
+            candidateCount:
+                item.candidateCount ?? null,
+
+            selectedFrame:
+                item.selectedFrame ?? null
+
+        };
+
+    });
+
+    return output;
+
+}
+
+
+// ============================================================
+// 採点結果を保存
+// ============================================================
+
+async function saveCurrentResult() {
+
+    if (!currentScoringResult) {
+
+        throw new Error(
+            "保存できる採点結果がありません。"
+        );
+
+    }
+
+    if (!window.VaultStorage) {
+
+        throw new Error(
+            "保存プログラムが読み込まれていません。"
+        );
+
+    }
+
+
+    const studentName =
+        studentNameElement?.value.trim() || "";
+
+    const skill =
+        skillElement?.value || "開脚跳び";
+
+
+    if (!studentName) {
+
+        throw new Error(
+            "生徒名を入力してください。"
+        );
+
+    }
+
+
+    const dScore =
+        Number(currentScoringResult.score);
+
+    const eScore =
+        Number(eScoreElement?.value);
+
+    if (
+        !Number.isFinite(dScore) ||
+        !Number.isFinite(eScore) ||
+        eScore < 0 ||
+        eScore > 10
+    ) {
+
+        throw new Error(
+            "DスコアまたはEスコアを確認してください。"
+        );
+
+    }
+
+
+    updateTotal();
+
+    const totalScore =
+        Number(totalScoreElement?.textContent);
+
+
+    const phase =
+        currentScoringResult.phase || {};
+
+
+    const record = {
+
+        studentName: studentName,
+
+        skill: skill,
+
+        date: getTodayString(),
+
+        savedAt: new Date().toISOString(),
+
+        dScore: Number(dScore.toFixed(1)),
+
+        eScore: Number(eScore.toFixed(1)),
+
+        totalScore: Number(totalScore.toFixed(1)),
+
+        details: createSavedDetails(
+            currentScoringResult
+        ),
+
+        phase: {
+
+            takeOff: phase.takeOff ?? null,
+
+            handContact: phase.handContact ?? null,
+
+            highestHip: phase.highestHip ?? null,
+
+            landing: phase.landing ?? null,
+
+            handMeasured: phase.handMeasured ?? null,
+
+            handCandidates: Array.isArray(phase.handCandidates)
+                ? phase.handCandidates.length
+                : 0,
+
+            selectionScore: phase.selectionScore ?? null
+
+        },
+
+        totalComment:
+            typeof createTotalComment === "function"
+                ? createTotalComment(currentScoringResult)
+                : ""
+
+    };
+
+
+    const id =
+        await window.VaultStorage.saveResult(record);
+
+
+    return id;
+
+}
+
+
+// ============================================================
+// 保存ボタン
+// ============================================================
+
+if (saveResultBtn) {
+
+    saveResultBtn.addEventListener("click", async () => {
+
+        saveResultBtn.disabled = true;
+
+        if (saveStatusElement) {
+
+            saveStatusElement.textContent =
+                "採点結果を保存しています...";
+
+        }
+
+        try {
+
+            const id = await saveCurrentResult();
+
+            if (saveStatusElement) {
+
+                saveStatusElement.textContent =
+                    `保存しました。保存番号：${id}`;
+
+            }
+
+            await renderSavedResults();
+
+        } catch (error) {
+
+            console.error(
+                "保存エラー:",
+                error
+            );
+
+            if (saveStatusElement) {
+
+                saveStatusElement.textContent =
+                    "保存できませんでした：" + error.message;
+
+            }
+
+            alert(
+                "保存できませんでした。\n" + error.message
+            );
+
+        } finally {
+
+            saveResultBtn.disabled =
+                !currentScoringResult;
+
+        }
+
+    });
+
+}
+
+
+// ============================================================
+// HTML表示用エスケープ
+// ============================================================
+
+function escapeHTML(value) {
+
+    return String(value ?? "").replace(
+        /[&<>"']/g,
+        character => {
+
+            const map = {
+                "&": "&amp;",
+                "<": "&lt;",
+                ">": "&gt;",
+                '"': "&quot;",
+                "'": "&#39;"
+            };
+
+            return map[character];
+
+        }
+    );
+
+}
+
+
+// ============================================================
+// 保存結果一覧
+// ============================================================
+
+async function renderSavedResults() {
+
+    if (!savedResultsElement) return;
+
+    if (!window.VaultStorage) {
+
+        savedResultsElement.textContent =
+            "保存プログラムが読み込まれていません。";
+
+        return;
+
+    }
+
+
+    try {
+
+        const results =
+            await window.VaultStorage.getAllResults();
+
+
+        if (results.length === 0) {
+
+            savedResultsElement.textContent =
+                "まだ採点結果は保存されていません。";
+
+            return;
+
+        }
+
+
+        const rows = results.map(record => {
+
+            return `
+                <tr>
+                    <td>${escapeHTML(record.date)}</td>
+                    <td>${escapeHTML(record.studentName)}</td>
+                    <td>${escapeHTML(record.skill)}</td>
+                    <td>${Number(record.dScore).toFixed(1)}</td>
+                    <td>${Number(record.eScore).toFixed(1)}</td>
+                    <td><strong>${Number(record.totalScore).toFixed(1)}</strong></td>
+                    <td>
+                        <button
+                            type="button"
+                            class="deleteSavedResult"
+                            data-id="${Number(record.id)}">
+                            削除
+                        </button>
+                    </td>
+                </tr>
+            `;
+
+        }).join("");
+
+
+        savedResultsElement.innerHTML = `
+            <p>保存件数：${results.length}件</p>
+
+            <div style="overflow-x:auto;">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>実施日</th>
+                            <th>生徒名</th>
+                            <th>技</th>
+                            <th>D</th>
+                            <th>E</th>
+                            <th>合計</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+
+                    <tbody>
+                        ${rows}
+                    </tbody>
+                </table>
+            </div>
+        `;
+
+
+    } catch (error) {
+
+        console.error(
+            "一覧取得エラー:",
+            error
+        );
+
+        savedResultsElement.textContent =
+            "保存結果を読み込めませんでした：" + error.message;
+
+    }
+
+}
+
+
+// ============================================================
+// 一覧更新ボタン
+// ============================================================
+
+if (refreshResultsBtn) {
+
+    refreshResultsBtn.addEventListener("click", () => {
+
+        renderSavedResults();
+
+    });
+
+}
+
+
+// ============================================================
+// 保存結果の個別削除
+// ============================================================
+
+if (savedResultsElement) {
+
+    savedResultsElement.addEventListener("click", async event => {
+
+        const button =
+            event.target.closest(".deleteSavedResult");
+
+        if (!button) return;
+
+
+        const id =
+            Number(button.dataset.id);
+
+
+        if (!Number.isFinite(id)) return;
+
+
+        const confirmed = confirm(
+            "この採点結果を削除しますか？\n削除した記録は元に戻せません。"
+        );
+
+        if (!confirmed) return;
+
+
+        try {
+
+            await window.VaultStorage.deleteResult(id);
+
+            await renderSavedResults();
+
+        } catch (error) {
+
+            console.error(
+                "削除エラー:",
+                error
+            );
+
+            alert(
+                "削除できませんでした：" + error.message
+            );
+
+        }
+
+    });
+
+}
+
+
+// ============================================================
+// Eスコア変更時
+// ============================================================
+
+if (eScoreElement) {
+
+    eScoreElement.addEventListener("input", () => {
+
+        updateTotal();
+
+    });
+
+}
+
+
+// ============================================================
+// 初期化
+// ============================================================
 
 window.updateTotal = updateTotal;
 
-console.log("app.js Ver7.2 読み込み成功");
+window.showPhaseInfo = showPhaseInfo;
 
-const appDiagnostic = document.getElementById("appDiagnostic");
+window.renderSavedResults = renderSavedResults;
 
-if (appDiagnostic) {
-    appDiagnostic.textContent =
-        "app.js Ver7.2 読み込み成功！";
-    appDiagnostic.style.background = "#d8f3dc";
+window.saveCurrentResult = saveCurrentResult;
+
+
+// 保存結果を読み込む
+renderSavedResults();
+
+
+// 跳び箱検出プログラムの確認
+const vaultDiagnostic =
+    document.getElementById("vaultDiagnostic");
+
+if (vaultDiagnostic) {
+
+    if (
+        typeof window.detectVaultBox === "function" &&
+        typeof window.drawVaultBoxDetection === "function"
+    ) {
+
+        vaultDiagnostic.textContent =
+            "跳び箱検出プログラム：読み込み成功";
+
+    }
+
 }
+
+
+setAppDiagnostic(
+    "跳び箱AI採点システム Ver9.0 読み込み成功！"
+);
+
+
+console.log(
+    "跳び箱AI採点システム app.js Ver9.0 読み込み成功"
+);

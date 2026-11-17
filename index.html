@@ -1,159 +1,112 @@
+
 <!DOCTYPE html>
 <html lang="ja">
-
 <head>
-
     <meta charset="UTF-8">
-
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
-    <title>跳び箱AI採点システム Ver4.0</title>
-
+    <title>跳び箱AI採点システム Ver9.0</title>
     <link rel="stylesheet" href="style.css">
 
     <!-- MediaPipe Pose -->
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
-
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
 </head>
 
 <body>
-
 <div class="container">
 
-    <h1>★★★★テスト★★★★</h1>
+    <h1>跳び箱AI採点システム Ver9.0</h1>
+
     <div id="appDiagnostic" style="
-    margin:10px 0;
-    padding:12px;
-    background:#fff3cd;
-    border:1px solid #e0c36a;
-    border-radius:8px;
-">
-    app.js 読み込み確認中...
-</div>
+        margin:10px 0;
+        padding:12px;
+        background:#fff3cd;
+        border:1px solid #e0c36a;
+        border-radius:8px;
+    ">
+        読み込み確認中...
+    </div>
 
     <!-- 基本情報 -->
     <section class="card">
-
         <h2>基本情報</h2>
 
         <label for="studentName">生徒名</label>
-
-        <input
-            type="text"
-            id="studentName"
-            placeholder="名前を入力">
+        <input type="text" id="studentName" placeholder="名前を入力">
 
         <label for="skill">技</label>
-
         <select id="skill">
-
             <option value="開脚跳び">開脚跳び</option>
             <option value="閉脚跳び">閉脚跳び</option>
             <option value="台上前転">台上前転</option>
-
         </select>
-
     </section>
 
     <!-- 動画 -->
     <section class="card">
-
         <h2>動画</h2>
 
-        <input
-            type="file"
-            id="videoFile"
-            accept="video/*">
+        <input type="file" id="videoFile" accept="video/*">
 
         <div id="videoContainer">
-
-            <video
-                id="video"
-                controls
-                playsinline>
-            </video>
-
+            <video id="video" controls playsinline></video>
             <canvas id="outputCanvas"></canvas>
-
         </div>
-        <div
-    id="poseDiagnostic"
-    style="
-        margin-top:10px;
-        padding:10px;
-        background:#f5f5f5;
-        border-radius:8px;
-        font-size:14px;
-        line-height:1.6;
-    "
->
-    着手フレーム診断：待機中
-</div>
 
+        <div id="poseDiagnostic" style="
+            margin-top:10px;
+            padding:10px;
+            background:#f5f5f5;
+            border-radius:8px;
+            font-size:14px;
+            line-height:1.6;
+        ">
+            着手フレーム診断：待機中
+        </div>
+
+        <div id="vaultDiagnostic" style="
+            margin-top:10px;
+            padding:12px;
+            background:#fff3cd;
+            border-radius:8px;
+            font-weight:bold;
+            white-space:pre-wrap;
+        ">
+            跳び箱検出：待機中
+        </div>
     </section>
 
-    <!-- ボタン -->
+    <!-- 解析 -->
     <section class="card">
-
-        <button id="detectBtn">
-
-<div id="vaultDiagnostic"
-     style="margin-top:12px;padding:12px;
-     background:#fff3cd;border-radius:8px;
-     font-weight:bold;">
-    跳び箱検出：待機中
-</div>
-
+        <button id="detectBtn" type="button">
             AI骨格検出開始
-
         </button>
-
     </section>
 
-   <!-- 状態 -->
-<section class="card">
+    <!-- 状態 -->
+    <section class="card">
+        <h2>状態</h2>
+        <p id="status">動画を選択してください</p>
 
-    <h2>状態</h2>
+        <hr>
 
-    <p id="status">
-        動画を選択してください
-    </p>
-
-    <hr>
-
-    <h3>フェーズ検出</h3>
-
-    <div id="phaseInfo">
-
-        未解析
-
-    </div>
-
-</section>
+        <h3>フェーズ検出</h3>
+        <div id="phaseInfo">未解析</div>
+    </section>
 
     <!-- 採点 -->
     <section class="card">
-
         <h2>採点結果</h2>
 
         <table>
-
             <tr>
-
                 <th>Dスコア</th>
-
                 <td id="dScore">-</td>
-
             </tr>
-
             <tr>
-
                 <th>Eスコア</th>
-
                 <td>
-
                     <input
                         type="number"
                         id="eScore"
@@ -161,81 +114,79 @@
                         min="0"
                         max="10"
                         step="0.1">
-
                 </td>
-
             </tr>
-
             <tr>
-
                 <th>総合得点</th>
-
                 <td id="totalScore">-</td>
-
             </tr>
-
         </table>
-
     </section>
-    <!-- AI評価フィードバック -->
 
-<section class="card">
+    <!-- AI評価 -->
+    <section class="card">
+        <h2>AI評価コメント</h2>
 
-    <h2>AI評価コメント</h2>
+        <div id="kneeDebug" style="
+            margin-top:10px;
+            padding:10px;
+            background:#f5f5f5;
+            border-radius:8px;
+            font-size:14px;
+        ">
+            膝角度候補：解析待ち
+        </div>
 
-<div
-    id="kneeDebug"
-    style="
-        margin-top:10px;
-        padding:10px;
-        background:#f5f5f5;
-        border-radius:8px;
-        font-size:14px;
-    "
->
-    膝角度候補：解析待ち
+        <div id="feedback">
+            解析するとAI評価が表示されます
+        </div>
+    </section>
+
+    <!-- 保存 -->
+    <section class="card">
+        <h2>採点結果の保存</h2>
+
+        <p>
+            生徒名・技・採点結果を確認してから保存してください。
+        </p>
+
+        <button id="saveResultBtn" type="button" disabled>
+            この採点結果を保存
+        </button>
+
+        <p id="saveStatus" aria-live="polite">
+            解析が完了すると保存できます。
+        </p>
+    </section>
+
+    <!-- 保存済み一覧 -->
+    <section class="card">
+        <h2>保存済みの採点結果</h2>
+
+        <button id="refreshResultsBtn" type="button">
+            一覧を更新
+        </button>
+
+        <div id="savedResults">
+            保存結果を読み込んでいます...
+        </div>
+    </section>
+
 </div>
 
-    <div id="feedback">
-
-        解析するとAI評価が表示されます
-
-    </div>
-
-</section>
-
-</div>
-
+<!-- プログラム読み込み -->
 <script src="pose.js?v=7.3"></script>
 <script src="utils.js?v=5.9"></script>
 <script src="phase.js?v=7.0"></script>
-<script src="vaultDetector.js?v=8.1"></script>
-<script>
-document.addEventListener("DOMContentLoaded", function() {
-
-    const diagnostic =
-        document.getElementById("vaultDiagnostic");
-
-    if (!diagnostic) return;
-
-    if (
-        typeof window.detectVaultBox === "function" &&
-        typeof window.drawVaultBoxDetection === "function"
-    ) {
-        diagnostic.textContent =
-            "跳び箱検出プログラム：読み込み成功";
-    } else {
-        diagnostic.textContent =
-            "跳び箱検出プログラム：読み込み失敗";
-    }
-
-});
-</script>
+<script src="vaultDetector.js?v=8.2"></script>
 <script src="score.js?v=6.5"></script>
 <script src="feedback.js?v=6.4"></script>
-<script src="app.js?v=7.2"></script>
-<script src="score.js?v=6.5"></script>
-<script src="feedback.js?v=6.4"></script>
-<script src="app.js?v=7.2"></script>
+
+<!-- 新しい保存プログラム -->
+<script src="storage.js?v=9.0"></script>
+
+<!-- メインプログラム -->
+<script src="app.js?v=9.0"></script>
 
 </body>
+</html>
