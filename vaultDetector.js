@@ -202,80 +202,114 @@
         return components;
     }
 
-    // 候補の下側に木製本体があるか調べる
-    function checkBrownBody(
-        imageData,
+   
+// 候補の下側に木製本体があるか調べる
+function checkBrownBody(
+    imageData,
+    width,
+    height,
+    candidate
+) {
+    const data = imageData.data;
+
+    // 天板の中央部分を調査する
+    const x1 = Math.max(
+        0,
+        candidate.x + Math.round(candidate.width * 0.15)
+    );
+
+    const x2 = Math.min(
         width,
+        candidate.x + Math.round(candidate.width * 0.85)
+    );
+
+    const y1 = candidate.y + candidate.height;
+
+    const y2 = Math.min(
         height,
-        candidate
-    ) {
-        const data = imageData.data;
+        y1 + Math.max(8, Math.round(height * 0.32))
+    );
 
-        const x1 = Math.max(
-            0,
-            candidate.x +
-            Math.round(candidate.width * 0.12)
-        );
+    let sampled = 0;
+    let brown = 0;
 
-        const x2 = Math.min(
-            width,
-            candidate.x +
-            Math.round(candidate.width * 0.88)
-        );
+    let activeRows = 0;
+    let longestActiveRows = 0;
+    let currentActiveRows = 0;
 
-        const y1 =
-            candidate.y + candidate.height;
+    let rowRatios = [];
 
-        const y2 = Math.min(
-            height,
-            y1 + Math.max(
-                8,
-                Math.round(height * 0.32)
-            )
-        );
+    // 2ピクセル間隔で横方向の木製部分を調べる
+    for (let y = y1; y < y2; y += 2) {
+        let rowSampled = 0;
+        let rowBrown = 0;
 
-        let sampled = 0;
-        let brown = 0;
+        for (let x = x1; x < x2; x += 2) {
+            const p = (y * width + x) * 4;
 
-        // 一定間隔でサンプリング
-        for (let y = y1; y < y2; y += 2) {
-            for (let x = x1; x < x2; x += 2) {
+            const r = data[p];
+            const g = data[p + 1];
+            const b = data[p + 2];
 
-                const p = (y * width + x) * 4;
+            rowSampled++;
+            sampled++;
 
-                const r = data[p];
-                const g = data[p + 1];
-                const b = data[p + 2];
-
-                sampled++;
-
-                if (isBrownBody(r, g, b)) {
-                    brown++;
-                }
+            if (isBrownBody(r, g, b)) {
+                rowBrown++;
+                brown++;
             }
         }
 
-        return {
-            sampled,
-            brown,
-            ratio: sampled > 0
-                ? brown / sampled
-                : 0
-        };
+        const rowRatio = rowSampled > 0
+            ? rowBrown / rowSampled
+            : 0;
+
+        rowRatios.push(rowRatio);
+
+        // 横幅の30%以上が茶色なら有効な行とする
+        if (rowRatio >= 0.30) {
+            activeRows++;
+            currentActiveRows++;
+
+            longestActiveRows = Math.max(
+                longestActiveRows,
+                currentActiveRows
+            );
+        } else {
+            currentActiveRows = 0;
+        }
     }
 
-   
+    const ratio = sampled > 0
+        ? brown / sampled
+        : 0;
+
+    const rowCoverage = rowRatios.length > 0
+        ? activeRows / rowRatios.length
+        : 0;
+
+    return {
+        sampled,
+        brown,
+        ratio,
+        rowCoverage,
+        activeRows,
+        longestActiveRows
+    };
+}
+
+
+
 function detectVaultBox(source) {
 
     const image = createAnalysisImage(source);
 
-    const imageData =
-        image.ctx.getImageData(
-            0,
-            0,
-            image.width,
-            image.height
-        );
+    const imageData = image.ctx.getImageData(
+        0,
+        0,
+        image.width,
+        image.height
+    );
 
     const components = findWhiteComponents(
         imageData,
@@ -285,7 +319,6 @@ function detectVaultBox(source) {
 
     const candidates = [];
 
-    // 画像端の誤検出を防ぐための余白
     const edgeMarginX = image.width * 0.025;
     const edgeMarginY = image.height * 0.015;
 
@@ -334,14 +367,16 @@ function detectVaultBox(source) {
         if (heightRatio < 0.025) continue;
         if (heightRatio > 0.24) continue;
 
-        if (centerXRatio < 0.12) continue;
-        if (centerXRatio > 0.88) continue;
+        // 画面中央付近を優先するが、固定しすぎない
+        if (centerXRatio < 0.10) continue;
+        if (centerXRatio > 0.90) continue;
 
         if (centerYRatio < 0.10) continue;
         if (centerYRatio > 0.88) continue;
 
         if (component.density < 0.10) continue;
 
+        // 天板の真下に木製本体があるか調べる
         const body = checkBrownBody(
             imageData,
             image.width,
@@ -349,13 +384,21 @@ function detectVaultBox(source) {
             component
         );
 
-        // 下側に木製本体があるか確認
+        // 木製部分の総量が少ない候補を除外
         if (body.ratio < 0.12) continue;
 
+        // 木製部分が横方向に連続していない候補を除外
+        if (body.rowCoverage < 0.25) continue;
+
+        // 本体らしい連続した高さがない候補を除外
+        if (body.longestActiveRows < 3) continue;
+
         const score =
-            component.density * 25 +
-            Math.min(widthRatio, 0.7) * 35 +
-            Math.min(body.ratio, 0.7) * 40;
+            component.density * 20 +
+            Math.min(widthRatio, 0.7) * 25 +
+            Math.min(body.ratio, 0.7) * 25 +
+            body.rowCoverage * 20 +
+            Math.min(body.longestActiveRows / 10, 1) * 10;
 
         candidates.push({
             component,
@@ -370,7 +413,7 @@ function detectVaultBox(source) {
             type: "wooden",
             confidence: 0,
             message:
-                "天板候補を確認できませんでした。",
+                "天板と木製本体の組み合わせを確認できませんでした。",
             candidates: 0
         };
     }
@@ -402,7 +445,7 @@ function detectVaultBox(source) {
         detected: true,
         type: "wooden",
         confidence,
-        message: "白い天板候補を検出しました。",
+        message: "天板と木製本体を検出しました。",
         candidates: candidates.length,
 
         x,
@@ -418,6 +461,10 @@ function detectVaultBox(source) {
         },
 
         bodyRatio: best.body.ratio,
+        bodyRowCoverage: best.body.rowCoverage,
+        bodyActiveRows: best.body.activeRows,
+        bodyLongestActiveRows: best.body.longestActiveRows,
+
         aspect: c.aspect,
         density: c.density
     };
