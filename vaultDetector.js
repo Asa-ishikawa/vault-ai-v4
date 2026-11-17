@@ -1,14 +1,21 @@
 
 /* =========================================================
    跳び箱AI採点システム
-   vaultDetector.js Ver8.1
-   白い天板＋直下の木製本体の位置関係で検出する修正版
+   vaultDetector.js Ver8.2
+
+   ロイター板・床面の誤検出を減らす修正版
+
+   ・白い天板候補を抽出
+   ・天板の厚みと横長形状を確認
+   ・天板直下の木製本体の高さを確認
+   ・木製部分の連続性を確認
+   ・既存の呼び出し名を維持
 ========================================================= */
 
 (function () {
     "use strict";
 
-    const VERSION = "8.1";
+    const VERSION = "8.2";
     const ANALYSIS_WIDTH = 320;
 
     // 白い天板の色判定
@@ -38,26 +45,35 @@
         );
     }
 
-    // Canvasから解析用画像を取得
+    // 解析用画像を作成
     function createAnalysisImage(source) {
         if (!source) {
             throw new Error("画像が指定されていません。");
         }
 
-        const sourceWidth = source.videoWidth || source.width;
-        const sourceHeight = source.videoHeight || source.height;
+        const sourceWidth =
+            source.videoWidth || source.width;
+
+        const sourceHeight =
+            source.videoHeight || source.height;
 
         if (!sourceWidth || !sourceHeight) {
-            throw new Error("動画の画像サイズを取得できません。");
+            throw new Error(
+                "動画の画像サイズを取得できません。"
+            );
         }
 
         const width = ANALYSIS_WIDTH;
+
         const height = Math.max(
             1,
-            Math.round(sourceHeight * width / sourceWidth)
+            Math.round(
+                sourceHeight * width / sourceWidth
+            )
         );
 
         const canvas = document.createElement("canvas");
+
         canvas.width = width;
         canvas.height = height;
 
@@ -66,10 +82,18 @@
         });
 
         if (!ctx) {
-            throw new Error("画像解析用Canvasを作成できません。");
+            throw new Error(
+                "画像解析用Canvasを作成できません。"
+            );
         }
 
-        ctx.drawImage(source, 0, 0, width, height);
+        ctx.drawImage(
+            source,
+            0,
+            0,
+            width,
+            height
+        );
 
         return {
             canvas,
@@ -82,16 +106,27 @@
     }
 
     // 白色領域の連結成分を検出
-    function findWhiteComponents(imageData, width, height) {
+    function findWhiteComponents(
+        imageData,
+        width,
+        height
+    ) {
         const data = imageData.data;
         const length = width * height;
+
         const mask = new Uint8Array(length);
         const visited = new Uint8Array(length);
 
         for (let i = 0; i < length; i++) {
             const p = i * 4;
 
-            if (isWhiteTop(data[p], data[p + 1], data[p + 2])) {
+            if (
+                isWhiteTop(
+                    data[p],
+                    data[p + 1],
+                    data[p + 2]
+                )
+            ) {
                 mask[i] = 1;
             }
         }
@@ -99,8 +134,17 @@
         const queue = new Int32Array(length);
         const components = [];
 
-        const dx = [-1, 0, 1, -1, 1, -1, 0, 1];
-        const dy = [-1, -1, -1, 0, 0, 1, 1, 1];
+        const dx = [
+            -1, 0, 1,
+            -1, 1,
+            -1, 0, 1
+        ];
+
+        const dy = [
+            -1, -1, -1,
+            0, 0,
+            1, 1, 1
+        ];
 
         for (let start = 0; start < length; start++) {
             if (!mask[start] || visited[start]) {
@@ -121,10 +165,12 @@
 
             while (head < tail) {
                 const index = queue[head++];
+
                 const x = index % width;
                 const y = Math.floor(index / width);
 
                 area++;
+
                 minX = Math.min(minX, x);
                 minY = Math.min(minY, y);
                 maxX = Math.max(maxX, x);
@@ -145,7 +191,10 @@
 
                     const next = ny * width + nx;
 
-                    if (mask[next] && !visited[next]) {
+                    if (
+                        mask[next] &&
+                        !visited[next]
+                    ) {
                         visited[next] = 1;
                         queue[tail++] = next;
                     }
@@ -166,7 +215,8 @@
                 height: boxHeight,
                 area,
                 aspect: boxWidth / boxHeight,
-                density: area / (boxWidth * boxHeight)
+                density:
+                    area / (boxWidth * boxHeight)
             });
         }
 
@@ -174,41 +224,62 @@
     }
 
     /*
-     * 天板のすぐ下に木製本体があるか確認する。
-     * 天板直下の狭い範囲を調べ、離れた場所の茶色を除外する。
+     * 天板直下の木製本体を確認する。
+     *
+     * 今回は茶色の色が少しあるだけでは合格にしない。
+     * 複数の行にわたって木製色が続くことを確認する。
      */
-    function checkBrownBody(imageData, width, height, candidate) {
+    function checkBrownBody(
+        imageData,
+        width,
+        height,
+        candidate
+    ) {
         const data = imageData.data;
 
         const x1 = Math.max(
             0,
-            candidate.x + Math.round(candidate.width * 0.08)
+            candidate.x +
+            Math.round(candidate.width * 0.20)
         );
 
         const x2 = Math.min(
             width,
-            candidate.x + Math.round(candidate.width * 0.92)
+            candidate.x +
+            Math.round(candidate.width * 0.80)
         );
 
-        const y1 = candidate.y + candidate.height;
+        const y1 =
+            candidate.y + candidate.height;
 
         const bandHeight = Math.max(
-            10,
+            12,
             Math.min(
-                Math.round(height * 0.28),
-                Math.round(candidate.width * 0.55)
+                Math.round(height * 0.35),
+                Math.round(candidate.width * 0.45)
             )
         );
 
-        const y2 = Math.min(height, y1 + bandHeight);
+        const y2 = Math.min(
+            height,
+            y1 + bandHeight
+        );
 
         let sampled = 0;
         let brown = 0;
+
         let rowsChecked = 0;
         let rowsWithBrown = 0;
+
         let bestRowCoverage = 0;
+        let longestBrownRun = 0;
+        let currentBrownRun = 0;
+
         let brownXTotal = 0;
         let brownYTotal = 0;
+
+        let minBrownY = height;
+        let maxBrownY = 0;
 
         for (let y = y1; y < y2; y += 2) {
             let rowSampled = 0;
@@ -227,34 +298,52 @@
                 if (isBrownBody(r, g, b)) {
                     brown++;
                     rowBrown++;
+
                     brownXTotal += x;
                     brownYTotal += y;
+
+                    minBrownY = Math.min(minBrownY, y);
+                    maxBrownY = Math.max(maxBrownY, y);
                 }
             }
 
             if (rowSampled > 0) {
                 rowsChecked++;
 
-                const rowCoverage = rowBrown / rowSampled;
+                const rowCoverage =
+                    rowBrown / rowSampled;
 
                 bestRowCoverage = Math.max(
                     bestRowCoverage,
                     rowCoverage
                 );
 
-                if (rowCoverage >= 0.28) {
+                if (rowCoverage >= 0.22) {
                     rowsWithBrown++;
+                    currentBrownRun++;
+
+                    longestBrownRun = Math.max(
+                        longestBrownRun,
+                        currentBrownRun
+                    );
+                } else {
+                    currentBrownRun = 0;
                 }
             }
         }
 
-        const ratio = sampled > 0 ? brown / sampled : 0;
+        const ratio =
+            sampled > 0 ? brown / sampled : 0;
 
         const brownCenterX =
-            brown > 0 ? brownXTotal / brown : null;
+            brown > 0
+                ? brownXTotal / brown
+                : null;
 
         const brownCenterY =
-            brown > 0 ? brownYTotal / brown : null;
+            brown > 0
+                ? brownYTotal / brown
+                : null;
 
         const candidateCenterX =
             candidate.x + candidate.width / 2;
@@ -262,18 +351,33 @@
         const centerOffsetRatio =
             brownCenterX === null
                 ? 1
-                : Math.abs(brownCenterX - candidateCenterX) /
-                  Math.max(1, candidate.width);
+                : Math.abs(
+                    brownCenterX - candidateCenterX
+                ) / Math.max(1, candidate.width);
 
         const rowCoverageRatio =
-            rowsChecked > 0 ? rowsWithBrown / rowsChecked : 0;
+            rowsChecked > 0
+                ? rowsWithBrown / rowsChecked
+                : 0;
 
+        const verticalBrownHeight =
+            brown > 0
+                ? maxBrownY - minBrownY
+                : 0;
+
+        const verticalHeightRatio =
+            verticalBrownHeight /
+            Math.max(1, candidate.width);
+
+        // 木製本体として認める条件
         const valid =
-            ratio >= 0.16 &&
-            rowsWithBrown >= 3 &&
-            rowCoverageRatio >= 0.25 &&
-            bestRowCoverage >= 0.30 &&
-            centerOffsetRatio <= 0.38;
+            ratio >= 0.22 &&
+            rowsWithBrown >= 6 &&
+            rowCoverageRatio >= 0.35 &&
+            bestRowCoverage >= 0.40 &&
+            longestBrownRun >= 4 &&
+            centerOffsetRatio <= 0.35 &&
+            verticalHeightRatio >= 0.10;
 
         return {
             sampled,
@@ -283,14 +387,17 @@
             rowsWithBrown,
             rowCoverageRatio,
             bestRowCoverage,
+            longestBrownRun,
             brownCenterX,
             brownCenterY,
             centerOffsetRatio,
+            verticalBrownHeight,
+            verticalHeightRatio,
             valid
         };
     }
 
-    // 白い天板と、その直下の木製本体を組み合わせて検出
+    // 跳び箱の天板を検出
     function detectVaultBox(source) {
         const image = createAnalysisImage(source);
 
@@ -309,8 +416,11 @@
 
         const candidates = [];
 
-        const edgeMarginX = image.width * 0.025;
-        const edgeMarginY = image.height * 0.015;
+        const edgeMarginX =
+            image.width * 0.025;
+
+        const edgeMarginY =
+            image.height * 0.015;
 
         for (const component of components) {
             const centerX =
@@ -331,7 +441,7 @@
             const centerYRatio =
                 centerY / image.height;
 
-            // 画像端に接する候補は除外
+            // 画像端に接する候補を除外
             if (component.x <= edgeMarginX) continue;
 
             if (
@@ -346,24 +456,30 @@
                 image.height - edgeMarginY
             ) continue;
 
-            // 天板らしい横長形状
-            if (component.aspect < 1.7) continue;
-            if (component.aspect > 8.5) continue;
+            /*
+             * 天板の形状を確認。
+             *
+             * 床面のように縦方向へ広がる領域は
+             * ここで候補から除外する。
+             */
+            if (component.aspect < 2.4) continue;
+            if (component.aspect > 10.0) continue;
 
-            if (widthRatio < 0.12) continue;
+            if (widthRatio < 0.10) continue;
             if (widthRatio > 0.85) continue;
 
-            if (heightRatio < 0.025) continue;
-            if (heightRatio > 0.24) continue;
+            if (heightRatio < 0.018) continue;
+            if (heightRatio > 0.13) continue;
 
-            if (centerXRatio < 0.12) continue;
-            if (centerXRatio > 0.88) continue;
+            if (centerXRatio < 0.08) continue;
+            if (centerXRatio > 0.92) continue;
 
-            if (centerYRatio < 0.10) continue;
-            if (centerYRatio > 0.88) continue;
+            if (centerYRatio < 0.08) continue;
+            if (centerYRatio > 0.90) continue;
 
-            if (component.density < 0.10) continue;
+            if (component.density < 0.12) continue;
 
+            // 天板の直下に木製本体があるか確認
             const body = checkBrownBody(
                 imageData,
                 image.width,
@@ -371,15 +487,19 @@
                 component
             );
 
-            // 天板直下に連続した木製本体がなければ除外
             if (!body.valid) continue;
 
+            // 候補の評価点
             const score =
                 component.density * 20 +
-                Math.min(widthRatio, 0.7) * 25 +
+                Math.min(widthRatio, 0.7) * 20 +
                 Math.min(body.ratio, 0.7) * 20 +
-                body.rowCoverageRatio * 25 +
-                body.bestRowCoverage * 10;
+                body.rowCoverageRatio * 15 +
+                body.bestRowCoverage * 10 +
+                Math.min(
+                    body.verticalHeightRatio,
+                    0.5
+                ) * 30;
 
             candidates.push({
                 component,
@@ -388,18 +508,22 @@
             });
         }
 
+        // 有効な候補がない場合
         if (candidates.length === 0) {
             return {
                 detected: false,
                 type: "wooden",
                 confidence: 0,
                 message:
-                    "白い天板と、その直下の木製本体を確認できませんでした。",
+                    "跳び箱の天板と木製本体を確認できませんでした。",
                 candidates: 0
             };
         }
 
-        candidates.sort((a, b) => b.score - a.score);
+        // 最も跳び箱らしい候補を選ぶ
+        candidates.sort(
+            (a, b) => b.score - a.score
+        );
 
         const best = candidates[0];
         const c = best.component;
@@ -424,8 +548,10 @@
             detected: true,
             type: "wooden",
             confidence,
+
             message:
                 "天板と木製本体の位置関係を確認しました。",
+
             candidates: candidates.length,
 
             x,
@@ -444,6 +570,10 @@
             bodyRowsWithBrown: best.body.rowsWithBrown,
             bodyRowCoverage: best.body.rowCoverageRatio,
             bodyCenterOffset: best.body.centerOffsetRatio,
+            bodyVerticalHeight: best.body.verticalBrownHeight,
+            bodyVerticalHeightRatio:
+                best.body.verticalHeightRatio,
+
             aspect: c.aspect,
             density: c.density
         };
@@ -452,13 +582,17 @@
     // 指定時刻の動画フレームで検出
     async function detectVaultBoxAtTime(video, time) {
         if (!video) {
-            throw new Error("動画が指定されていません。");
+            throw new Error(
+                "動画が指定されていません。"
+            );
         }
 
         const targetTime = Number(time);
 
         if (!Number.isFinite(targetTime)) {
-            throw new Error("検出する動画時刻が不正です。");
+            throw new Error(
+                "検出する動画時刻が不正です。"
+            );
         }
 
         const duration = Number(video.duration);
@@ -467,7 +601,9 @@
             ? Math.max(0, Math.min(targetTime, duration))
             : Math.max(0, targetTime);
 
-        if (Math.abs(video.currentTime - safeTime) > 0.02) {
+        if (
+            Math.abs(video.currentTime - safeTime) > 0.02
+        ) {
             await new Promise((resolve, reject) => {
                 const timeout = setTimeout(() => {
                     cleanup();
@@ -529,7 +665,9 @@
 
     // 検出結果を映像上に表示
     function drawVaultBoxDetection(canvas, result) {
-        if (!canvas || !result || !result.detected) return;
+        if (!canvas || !result || !result.detected) {
+            return;
+        }
 
         const ctx = canvas.getContext("2d");
 
@@ -573,7 +711,7 @@
         ctx.restore();
     }
 
-    // グローバル公開（既存の呼び出し名を維持）
+    // 既存プログラムとの接続
     window.detectVaultBox = detectVaultBox;
 
     window.detectVaultBoxAtTime =
@@ -583,7 +721,8 @@
         drawVaultBoxDetection;
 
     console.log(
-        "vaultDetector.js Ver" + VERSION +
+        "vaultDetector.js Ver" +
+        VERSION +
         " 読み込み成功"
     );
 
