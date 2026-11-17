@@ -1,8 +1,14 @@
 
 /* =========================================================
-   forwardRollPhase.js Ver1.0
+   forwardRollPhase.js Ver1.1
    台上前転専用・動作フェーズ検出
-   既存の phase.js には影響しない独立ファイル
+
+   Ver1.1 変更点
+   ・左右の手首を独立して評価
+   ・上面と手前側面の両方を候補範囲にする
+   ・複数フレームの連続性を評価
+   ・手首のvisibilityを信頼度に反映
+   ・既存のphase.jsには影響しない
 ========================================================= */
 
 (function () {
@@ -14,8 +20,16 @@
         MIN_FRAMES: 12,
         MIN_VISIBILITY: 0.35,
         SMOOTH_WINDOW: 3,
-        HAND_Y_TOLERANCE: 0.18,
-        HAND_X_MARGIN: 0.15,
+
+        // 着手候補の範囲
+        HAND_TOP_MARGIN_X: 0.35,
+        HAND_TOP_MARGIN_Y: 0.25,
+        HAND_SIDE_MARGIN_X: 0.30,
+        HAND_SIDE_MARGIN_Y: 0.25,
+
+        // 候補の連続性
+        HAND_CONTINUITY_WINDOW: 2,
+
         MIN_CONFIDENCE: 0.25
     };
 
@@ -28,9 +42,11 @@
 
         const point = frame.landmarks[index];
 
-        if (!point ||
+        if (
+            !point ||
             !Number.isFinite(point.x) ||
-            !Number.isFinite(point.y)) {
+            !Number.isFinite(point.y)
+        ) {
             return null;
         }
 
@@ -95,13 +111,6 @@
         ]);
     }
 
-    function getWrist(frame) {
-        return averagePoints([
-            getLandmark(frame, 15),
-            getLandmark(frame, 16)
-        ]);
-    }
-
     function getVaultBox(frame) {
         if (!frame || !frame.vaultBox) return null;
 
@@ -111,12 +120,12 @@
             !Number.isFinite(box.x) ||
             !Number.isFinite(box.y) ||
             !Number.isFinite(box.width) ||
-            !Number.isFinite(box.height)
+            !Number.isFinite(box.height) ||
+            box.width <= 0 ||
+            box.height <= 0
         ) {
             return null;
         }
-
-        if (box.width <= 0 || box.height <= 0) return null;
 
         return {
             x: box.x,
@@ -134,34 +143,19 @@
             : index;
     }
 
-    function getTime(frame, index) {
+    function getTime(frame) {
         return Number.isFinite(frame.time)
             ? frame.time
             : null;
     }
 
-    function makeEvent(frames, index, confidence, reason) {
-        if (!Number.isInteger(index) ||
-            index < 0 ||
-            index >= frames.length) {
-            return {
-                detected: false,
-                frame: null,
-                index: null,
-                time: null,
-                confidence: 0,
-                reason: reason || "候補を検出できませんでした"
-            };
-        }
+    function round(value) {
+        if (!Number.isFinite(value)) return 0;
+        return Math.round(value * 100) / 100;
+    }
 
-        return {
-            detected: true,
-            frame: getFrameNumber(frames[index], index),
-            index: index,
-            time: getTime(frames[index], index),
-            confidence: round(confidence),
-            reason: reason || ""
-        };
+    function clamp(value, min, max) {
+        return Math.max(min, Math.min(max, value));
     }
 
     function missingEvent(reason) {
@@ -175,17 +169,110 @@
         };
     }
 
-    function round(value) {
-        if (!Number.isFinite(value)) return 0;
-        return Math.round(value * 100) / 100;
-    }
+    function makeEvent(frames, index, confidence, reason) {
+        if (
+            !Number.isInteger(index) ||
+            index < 0 ||
+            index >= frames.length
+        ) {
+            return missingEvent(reason);
+        }
 
-    function clamp(value, min, max) {
-        return Math.max(min, Math.min(max, value));
+        return {
+            detected: true,
+            frame: getFrameNumber(frames[index], index),
+            index: index,
+            time: getTime(frames[index]),
+            confidence: round(confidence),
+            reason: reason
+        };
     }
 
     // -----------------------------------------------------
-    // 骨格データの特徴量
+    // 手首を左右別々に取得
+    // -----------------------------------------------------
+
+    function getWristCandidates(frame) {
+        return [
+            {
+                side: "left",
+                point: getLandmark(frame, 15)
+            },
+            {
+                side: "right",
+                point: getLandmark(frame, 16)
+            }
+        ].filter(function (item) {
+            return !!item.point;
+        });
+    }
+
+    // -----------------------------------------------------
+    // 跳び箱との位置関係
+    // -----------------------------------------------------
+
+    function evaluateHandPosition(wrist, box) {
+        if (!wrist || !box) return null;
+
+        const topDistance =
+            Math.abs(wrist.y - box.y) / box.height;
+
+        const withinTopX =
+            wrist.x >= box.x - box.width * CONFIG.HAND_TOP_MARGIN_X &&
+            wrist.x <= box.right + box.width * CONFIG.HAND_TOP_MARGIN_X;
+
+        const nearTop =
+            withinTopX &&
+            topDistance <= CONFIG.HAND_TOP_MARGIN_Y;
+
+        // 手前側面候補。
+        // 横から見た画像では手前側面が左右どちらに映るか
+        // カメラ配置によって変わるため、箱の前後方向を
+        // 固定せず、境界付近を広く候補にする。
+        const horizontalDistance = Math.min(
+            Math.abs(wrist.x - box.x),
+            Math.abs(wrist.x - box.right)
+        ) / box.width;
+
+        const withinSideY =
+            wrist.y >= box.y - box.height * CONFIG.HAND_SIDE_MARGIN_Y &&
+            wrist.y <= box.bottom + box.height * CONFIG.HAND_SIDE_MARGIN_Y;
+
+        const nearSide =
+            horizontalDistance <= CONFIG.HAND_SIDE_MARGIN_X &&
+            withinSideY;
+
+        if (!nearTop && !nearSide) return null;
+
+        const topScore = nearTop
+            ? 1 - topDistance / CONFIG.HAND_TOP_MARGIN_Y
+            : 0;
+
+        const sideScore = nearSide
+            ? 1 - horizontalDistance / CONFIG.HAND_SIDE_MARGIN_X
+            : 0;
+
+        const positionScore = Math.max(topScore, sideScore);
+
+        return {
+            type: nearTop && nearSide
+                ? "上面・側面境界"
+                : nearTop
+                    ? "上面付近"
+                    : "側面付近",
+
+            score: clamp(positionScore, 0, 1),
+
+            topDistance: round(topDistance),
+            sideDistance: round(horizontalDistance),
+
+            nearTop: nearTop,
+            nearSide: nearSide
+        };
+    }
+
+    // -----------------------------------------------------
+    // 骨格特徴量
     // -----------------------------------------------------
 
     function buildFeatures(frames) {
@@ -194,7 +281,6 @@
             const shoulder = getShoulder(frame);
             const knee = getKnee(frame);
             const ankle = getAnkle(frame);
-            const wrist = getWrist(frame);
             const box = getVaultBox(frame);
 
             let trunkAngle = null;
@@ -207,20 +293,27 @@
                     Math.atan2(dy, dx) * 180 / Math.PI;
             }
 
-            let handNearBox = false;
-            let handDistance = null;
+            const wrists = getWristCandidates(frame);
 
-            if (wrist && box) {
-                const withinX =
-                    wrist.x >= box.x - box.width * CONFIG.HAND_X_MARGIN &&
-                    wrist.x <= box.right + box.width * CONFIG.HAND_X_MARGIN;
+            const handCandidates = [];
 
-                handDistance = Math.abs(wrist.y - box.y);
+            wrists.forEach(function (item) {
+                if (!box) return;
 
-                handNearBox =
-                    withinX &&
-                    handDistance <= box.height * CONFIG.HAND_Y_TOLERANCE;
-            }
+                const position = evaluateHandPosition(
+                    item.point,
+                    box
+                );
+
+                if (!position) return;
+
+                handCandidates.push({
+                    side: item.side,
+                    point: item.point,
+                    position: position,
+                    visibility: item.point.visibility
+                });
+            });
 
             return {
                 index: index,
@@ -229,11 +322,9 @@
                 shoulder: shoulder,
                 knee: knee,
                 ankle: ankle,
-                wrist: wrist,
                 box: box,
                 trunkAngle: trunkAngle,
-                handNearBox: handNearBox,
-                handDistance: handDistance
+                handCandidates: handCandidates
             };
         });
     }
@@ -265,8 +356,10 @@
         const before = values[index - 1];
         const after = values[index + 1];
 
-        if (!Number.isFinite(before) ||
-            !Number.isFinite(after)) {
+        if (
+            !Number.isFinite(before) ||
+            !Number.isFinite(after)
+        ) {
             return 0;
         }
 
@@ -289,13 +382,9 @@
             const ankleVelocity = getVelocity(ankleValues, i);
             const hipVelocity = getVelocity(hipValues, i);
 
-            // 画像上では上方向への移動がマイナス
-            const upwardAnkle = -ankleVelocity;
-            const upwardHip = -hipVelocity;
-
             const score =
-                Math.max(0, upwardAnkle) * 0.6 +
-                Math.max(0, upwardHip) * 0.4;
+                Math.max(0, -ankleVelocity) * 0.6 +
+                Math.max(0, -hipVelocity) * 0.4;
 
             if (score > bestScore) {
                 bestScore = score;
@@ -309,72 +398,117 @@
             );
         }
 
-        const confidence = clamp(bestScore * 15, 0.25, 0.75);
-
         return makeEvent(
             features.map(f => f.frame),
             bestIndex,
-            confidence,
+            clamp(bestScore * 15, 0.25, 0.75),
             "足・腰の上方向への移動から踏切候補を推定"
         );
     }
 
     // -----------------------------------------------------
-    // 着手候補
+    // 着手候補 Ver1.1
     // -----------------------------------------------------
 
     function detectHandContact(features) {
         const candidates = [];
 
         features.forEach(function (f) {
-            if (!f.handNearBox || !f.wrist || !f.box) return;
+            f.handCandidates.forEach(function (hand) {
+                const continuity = features
+                    .slice(
+                        Math.max(
+                            0,
+                            f.index - CONFIG.HAND_CONTINUITY_WINDOW
+                        ),
+                        Math.min(
+                            features.length,
+                            f.index + CONFIG.HAND_CONTINUITY_WINDOW + 1
+                        )
+                    )
+                    .filter(function (nearFrame) {
+                        return nearFrame.handCandidates.some(function (other) {
+                            return other.side === hand.side;
+                        });
+                    }).length;
 
-            const distanceRatio =
-                f.handDistance / Math.max(f.box.height, 0.001);
+                const continuityScore = clamp(
+                    continuity / (
+                        CONFIG.HAND_CONTINUITY_WINDOW * 2 + 1
+                    ),
+                    0,
+                    1
+                );
 
-            const confidence = clamp(
-                0.85 - distanceRatio * 2,
-                0.25,
-                0.85
-            );
+                const confidence = clamp(
+                    hand.position.score * 0.45 +
+                    hand.visibility * 0.30 +
+                    continuityScore * 0.25,
+                    0,
+                    0.90
+                );
 
-            candidates.push({
-                index: f.index,
-                confidence: confidence,
-                distance: distanceRatio
+                candidates.push({
+                    index: f.index,
+                    side: hand.side,
+                    type: hand.position.type,
+                    confidence: confidence,
+                    continuity: continuity,
+                    topDistance: hand.position.topDistance,
+                    sideDistance: hand.position.sideDistance
+                });
             });
         });
 
         if (candidates.length === 0) {
             return {
                 event: missingEvent(
-                    "手首と跳び箱上面の位置関係から着手候補を検出できませんでした"
+                    "左右の手首が跳び箱の上面・側面付近にある候補を検出できませんでした"
                 ),
                 candidates: []
             };
         }
 
+        // 信頼度が高い順に選ぶ
         candidates.sort(function (a, b) {
-            return a.distance - b.distance;
+            return b.confidence - a.confidence;
         });
 
         const selected = candidates[0];
 
+        const event = makeEvent(
+            features.map(f => f.frame),
+            selected.index,
+            selected.confidence,
+            selected.type +
+            "にある手首を着手候補として検出（" +
+            selected.side +
+            "手）"
+        );
+
+        event.handSide = selected.side;
+        event.contactArea = selected.type;
+
+        // 低信頼度の場合は候補としてのみ表示
+        if (selected.confidence < 0.35) {
+            event.detected = false;
+            event.reason =
+                "着手候補はありますが、信頼度が不足しているため教師確認が必要です";
+        }
+
         return {
-            event: makeEvent(
-                features.map(f => f.frame),
-                selected.index,
-                selected.confidence,
-                "手首が跳び箱上面付近にあるフレームを着手候補として検出"
-            ),
-            candidates: candidates.map(function (c) {
+            event: event,
+            candidates: candidates.slice(0, 10).map(function (c) {
                 return {
                     index: c.index,
                     frame: getFrameNumber(
                         features[c.index].frame,
                         c.index
                     ),
-                    confidence: round(c.confidence)
+                    side: c.side,
+                    contactArea: c.type,
+                    confidence: round(c.confidence),
+                    continuity: c.continuity
                 };
             })
         };
@@ -387,8 +521,12 @@
     function detectRotation(features, handIndex, landingIndex) {
         if (handIndex < 0) {
             return {
-                start: missingEvent("着手候補がないため回転開始を推定できません"),
-                end: missingEvent("着手候補がないため回転終了を推定できません")
+                start: missingEvent(
+                    "着手候補がないため回転開始を推定できません"
+                ),
+                end: missingEvent(
+                    "着手候補がないため回転終了を推定できません"
+                )
             };
         }
 
@@ -396,10 +534,7 @@
             ? landingIndex
             : features.length - 1;
 
-        const angles = features.map(function (f) {
-            return f.trunkAngle;
-        });
-
+        const angles = features.map(f => f.trunkAngle);
         const validAngles = angles.filter(Number.isFinite);
 
         if (validAngles.length < 5) {
@@ -409,10 +544,6 @@
             };
         }
 
-        let startIndex = -1;
-        let endIndex = -1;
-        let maxChange = 0;
-
         const baseAngle = angles[handIndex];
 
         if (!Number.isFinite(baseAngle)) {
@@ -421,6 +552,9 @@
                 end: missingEvent("着手時の体幹角度を取得できません")
             };
         }
+
+        let endIndex = -1;
+        let maxChange = 0;
 
         for (let i = handIndex + 1; i <= endLimit; i++) {
             if (!Number.isFinite(angles[i])) continue;
@@ -435,7 +569,6 @@
             }
         }
 
-        // 角度変化が小さすぎる場合は無理に検出しない
         if (maxChange < 15 || endIndex < 0) {
             return {
                 start: missingEvent(
@@ -447,14 +580,12 @@
             };
         }
 
-        startIndex = handIndex;
-
         const confidence = clamp(maxChange / 120, 0.25, 0.65);
 
         return {
             start: makeEvent(
                 features.map(f => f.frame),
-                startIndex,
+                handIndex,
                 confidence,
                 "着手後の体幹角度変化から回転開始候補を推定"
             ),
@@ -473,7 +604,9 @@
 
     function detectBodyPass(features, handIndex, rotationEndIndex) {
         if (handIndex < 0) {
-            return missingEvent("着手候補がないため通過を推定できません");
+            return missingEvent(
+                "着手候補がないため通過を推定できません"
+            );
         }
 
         let bestIndex = -1;
@@ -528,7 +661,9 @@
         const start = Math.floor(features.length * 0.45);
 
         if (features.length - start < 3) {
-            return missingEvent("着地判定に必要なフレーム数が不足しています");
+            return missingEvent(
+                "着地判定に必要なフレーム数が不足しています"
+            );
         }
 
         let bestIndex = -1;
@@ -547,8 +682,7 @@
 
             if (!next) continue;
 
-            const stability =
-                Math.abs(next.y - ankle.y);
+            const stability = Math.abs(next.y - ankle.y);
 
             const score =
                 1 / (1 + velocity * 20 + stability * 20);
@@ -580,16 +714,19 @@
     function detectForwardRollPhases(frames) {
         const warnings = [];
 
-        if (!Array.isArray(frames) ||
-            frames.length < CONFIG.MIN_FRAMES) {
-
+        if (
+            !Array.isArray(frames) ||
+            frames.length < CONFIG.MIN_FRAMES
+        ) {
             lastForwardRollPhaseResult = {
-                version: "1.0",
+                version: "1.1",
                 success: false,
                 message: "骨格データが不足しています",
                 frameCount: Array.isArray(frames) ? frames.length : 0,
                 detected: {},
-                warnings: ["12フレーム以上の骨格データが必要です"]
+                warnings: [
+                    "12フレーム以上の骨格データが必要です"
+                ]
             };
 
             return lastForwardRollPhaseResult;
@@ -597,13 +734,13 @@
 
         const features = buildFeatures(frames);
 
-        const validVaultCount = features.filter(function (f) {
-            return !!f.box;
-        }).length;
+        const validVaultCount = features.filter(
+            f => !!f.box
+        ).length;
 
-        const validHipCount = features.filter(function (f) {
-            return !!f.hip;
-        }).length;
+        const validHipCount = features.filter(
+            f => !!f.hip
+        ).length;
 
         if (validVaultCount < 3) {
             warnings.push(
@@ -628,6 +765,7 @@
         );
 
         const handResult = detectHandContact(features);
+
         const handIndex = handResult.event.detected
             ? handResult.event.index
             : -1;
@@ -670,8 +808,9 @@
             landing.detected;
 
         lastForwardRollPhaseResult = {
-            version: "1.0",
+            version: "1.1",
             success: success,
+
             message: success
                 ? "台上前転の動作候補を検出しました"
                 : "動作候補を十分に検出できませんでした",
@@ -697,7 +836,7 @@
             },
 
             warnings: warnings.concat([
-                "この結果は骨格位置から推定した動作候補です。実際の踏切・着手・回転・着地を確定するものではありません。",
+                "この結果は骨格位置から推定した動作候補です。実際の接触を確定するものではありません。",
                 "頭部や首の接触、回転中の安全性は、この検出結果だけでは判定できません。",
                 "採点前に必ず教師が動画を確認してください。"
             ])
