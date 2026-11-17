@@ -264,148 +264,165 @@
         };
     }
 
-    // 木製跳び箱の天板を検出
-    function detectVaultBox(source) {
+   
+function detectVaultBox(source) {
 
-        const image = createAnalysisImage(source);
+    const image = createAnalysisImage(source);
 
-        const imageData =
-            image.ctx.getImageData(
-                0,
-                0,
-                image.width,
-                image.height
-            );
-
-        const components = findWhiteComponents(
-            imageData,
+    const imageData =
+        image.ctx.getImageData(
+            0,
+            0,
             image.width,
             image.height
         );
 
-        const candidates = [];
+    const components = findWhiteComponents(
+        imageData,
+        image.width,
+        image.height
+    );
 
-        for (const component of components) {
+    const candidates = [];
 
-            const centerX =
-                component.x + component.width / 2;
+    // 画像端の誤検出を防ぐための余白
+    const edgeMarginX = image.width * 0.025;
+    const edgeMarginY = image.height * 0.015;
 
-            const centerY =
-                component.y + component.height / 2;
+    for (const component of components) {
 
-            const widthRatio =
-                component.width / image.width;
+        const centerX =
+            component.x + component.width / 2;
 
-            const heightRatio =
-                component.height / image.height;
+        const centerY =
+            component.y + component.height / 2;
 
-            const centerXRatio =
-                centerX / image.width;
+        const widthRatio =
+            component.width / image.width;
 
-            const centerYRatio =
-                centerY / image.height;
+        const heightRatio =
+            component.height / image.height;
 
-            // 天板らしい形状か確認
-            if (component.aspect < 1.7) continue;
-            if (component.aspect > 8.5) continue;
+        const centerXRatio =
+            centerX / image.width;
 
-            if (widthRatio < 0.12) continue;
-            if (widthRatio > 0.85) continue;
+        const centerYRatio =
+            centerY / image.height;
 
-            if (heightRatio < 0.025) continue;
-            if (heightRatio > 0.24) continue;
+        // 画像端に接する候補は除外
+        if (component.x <= edgeMarginX) continue;
 
-            if (centerXRatio < 0.12) continue;
-            if (centerXRatio > 0.88) continue;
+        if (
+            component.x + component.width >=
+            image.width - edgeMarginX
+        ) continue;
 
-            if (centerYRatio < 0.10) continue;
-            if (centerYRatio > 0.88) continue;
+        if (component.y <= edgeMarginY) continue;
 
-            if (component.density < 0.10) continue;
+        if (
+            component.y + component.height >=
+            image.height - edgeMarginY
+        ) continue;
 
-            const body = checkBrownBody(
-                imageData,
-                image.width,
-                image.height,
-                component
-            );
+        // 天板らしい形状か確認
+        if (component.aspect < 1.7) continue;
+        if (component.aspect > 8.5) continue;
 
-            // 木製本体の色が下側にあることを確認
-            if (body.ratio < 0.12) continue;
+        if (widthRatio < 0.12) continue;
+        if (widthRatio > 0.85) continue;
 
-            const score =
-                component.density * 25 +
-                Math.min(widthRatio, 0.7) * 35 +
-                Math.min(body.ratio, 0.7) * 40;
+        if (heightRatio < 0.025) continue;
+        if (heightRatio > 0.24) continue;
 
-            candidates.push({
-                component,
-                body,
-                score
-            });
-        }
+        if (centerXRatio < 0.12) continue;
+        if (centerXRatio > 0.88) continue;
 
-        if (candidates.length === 0) {
-            return {
-                detected: false,
-                type: "wooden",
-                confidence: 0,
-                message:
-                    "白い天板と木製本体を確認できませんでした。",
-                candidates: 0
-            };
-        }
+        if (centerYRatio < 0.10) continue;
+        if (centerYRatio > 0.88) continue;
 
-        candidates.sort(
-            (a, b) => b.score - a.score
+        if (component.density < 0.10) continue;
+
+        const body = checkBrownBody(
+            imageData,
+            image.width,
+            image.height,
+            component
         );
 
-        const best = candidates[0];
-        const c = best.component;
+        // 下側に木製本体があるか確認
+        if (body.ratio < 0.12) continue;
 
-        const scaleX =
-            image.sourceWidth / image.width;
+        const score =
+            component.density * 25 +
+            Math.min(widthRatio, 0.7) * 35 +
+            Math.min(body.ratio, 0.7) * 40;
 
-        const scaleY =
-            image.sourceHeight / image.height;
+        candidates.push({
+            component,
+            body,
+            score
+        });
+    }
 
-        const x = c.x * scaleX;
-        const y = c.y * scaleY;
-        const w = c.width * scaleX;
-        const h = c.height * scaleY;
-
-        // 信頼度は初期段階の参考値
-        const confidence = Math.max(
-            0,
-            Math.min(1, best.score / 100)
-        );
-
+    if (candidates.length === 0) {
         return {
-            detected: true,
+            detected: false,
             type: "wooden",
-            confidence,
-            message: "白い天板候補を検出しました。",
-            candidates: candidates.length,
-
-            // 元動画のピクセル座標
-            x,
-            y,
-            width: w,
-            height: h,
-
-            // 0～1の正規化座標
-            normalized: {
-                x: x / image.sourceWidth,
-                y: y / image.sourceHeight,
-                width: w / image.sourceWidth,
-                height: h / image.sourceHeight
-            },
-
-            bodyRatio: best.body.ratio,
-            aspect: c.aspect,
-            density: c.density
+            confidence: 0,
+            message:
+                "天板候補を確認できませんでした。",
+            candidates: 0
         };
     }
+
+    candidates.sort(
+        (a, b) => b.score - a.score
+    );
+
+    const best = candidates[0];
+    const c = best.component;
+
+    const scaleX =
+        image.sourceWidth / image.width;
+
+    const scaleY =
+        image.sourceHeight / image.height;
+
+    const x = c.x * scaleX;
+    const y = c.y * scaleY;
+    const w = c.width * scaleX;
+    const h = c.height * scaleY;
+
+    const confidence = Math.max(
+        0,
+        Math.min(1, best.score / 100)
+    );
+
+    return {
+        detected: true,
+        type: "wooden",
+        confidence,
+        message: "白い天板候補を検出しました。",
+        candidates: candidates.length,
+
+        x,
+        y,
+        width: w,
+        height: h,
+
+        normalized: {
+            x: x / image.sourceWidth,
+            y: y / image.sourceHeight,
+            width: w / image.sourceWidth,
+            height: h / image.sourceHeight
+        },
+
+        bodyRatio: best.body.ratio,
+        aspect: c.aspect,
+        density: c.density
+    };
+}
+
 
     // 指定時刻の動画フレームで検出
     async function detectVaultBoxAtTime(video, time) {
