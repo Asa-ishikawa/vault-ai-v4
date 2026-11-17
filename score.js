@@ -3886,6 +3886,9 @@ function evaluateHandPlacement(frame) {
     const x = (left.x + right.x) / 2;
     const y = (left.y + right.y) / 2;
 
+const positionText =
+    ` 左手X=${left.x.toFixed(3)} / 右手X=${right.x.toFixed(3)}`;
+
     let score;
     let text;
 
@@ -3899,6 +3902,8 @@ function evaluateHandPlacement(frame) {
         score = 0;
         text = "着手位置：評価範囲から外れています（0点）。";
     }
+
+text += positionText;
 
     return {
         score: score,
