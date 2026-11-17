@@ -1,13 +1,15 @@
 
 /* =========================================================
-   forwardRollPhase.js Ver1.1
+   forwardRollPhase.js Ver1.2
    台上前転専用・動作フェーズ検出
 
-   Ver1.1 変更点
+   Ver1.2 変更点
+   ・上面と手前側の角付近を着手候補にする
+   ・上面の縦方向の許容範囲を拡張
    ・左右の手首を独立して評価
-   ・上面と手前側面の両方を候補範囲にする
    ・複数フレームの連続性を評価
    ・手首のvisibilityを信頼度に反映
+   ・候補位置の詳細を診断情報に保存
    ・既存のphase.jsには影響しない
 ========================================================= */
 
@@ -21,16 +23,23 @@
         MIN_VISIBILITY: 0.35,
         SMOOTH_WINDOW: 3,
 
-        // 着手候補の範囲
+        // 上面の候補範囲
         HAND_TOP_MARGIN_X: 0.35,
+
+        // 跳び箱の高さだけでなく幅も基準にして
+        // 上面と手前側の角付近を評価する
         HAND_TOP_MARGIN_Y: 0.25,
+        HAND_CORNER_MARGIN_Y: 0.45,
+
+        // 側面の境界候補
         HAND_SIDE_MARGIN_X: 0.30,
         HAND_SIDE_MARGIN_Y: 0.25,
 
-        // 候補の連続性
+        // 連続性
         HAND_CONTINUITY_WINDOW: 2,
 
-        MIN_CONFIDENCE: 0.25
+        // 着手判定の最低信頼度
+        MIN_HAND_CONFIDENCE: 0.35
     };
 
     // -----------------------------------------------------
@@ -151,7 +160,7 @@
 
     function round(value) {
         if (!Number.isFinite(value)) return 0;
-        return Math.round(value * 100) / 100;
+        return Math.round(value * 1000) / 1000;
     }
 
     function clamp(value, min, max) {
@@ -208,65 +217,104 @@
     }
 
     // -----------------------------------------------------
-    // 跳び箱との位置関係
+    // 跳び箱に対する手首の位置
     // -----------------------------------------------------
 
     function evaluateHandPosition(wrist, box) {
         if (!wrist || !box) return null;
 
+        const relativeX =
+            (wrist.x - box.x) / box.width;
+
+        const relativeY =
+            (wrist.y - box.y) / box.height;
+
+        // 上面候補
         const topDistance =
             Math.abs(wrist.y - box.y) / box.height;
 
         const withinTopX =
-            wrist.x >= box.x - box.width * CONFIG.HAND_TOP_MARGIN_X &&
-            wrist.x <= box.right + box.width * CONFIG.HAND_TOP_MARGIN_X;
+            relativeX >= -CONFIG.HAND_TOP_MARGIN_X &&
+            relativeX <= 1 + CONFIG.HAND_TOP_MARGIN_X;
 
         const nearTop =
             withinTopX &&
             topDistance <= CONFIG.HAND_TOP_MARGIN_Y;
 
-        // 手前側面候補。
-        // 横から見た画像では手前側面が左右どちらに映るか
-        // カメラ配置によって変わるため、箱の前後方向を
-        // 固定せず、境界付近を広く候補にする。
+        // 上面と手前側の角付近
+        // 跳び箱の検出枠が薄い場合に備え、
+        // 縦方向の許容範囲を箱の幅基準でも評価する
+        const cornerVerticalDistance =
+            Math.abs(wrist.y - box.y) / box.width;
+
+        const nearCorner =
+            withinTopX &&
+            cornerVerticalDistance <=
+                CONFIG.HAND_CORNER_MARGIN_Y;
+
+        // 側面の左右境界候補
         const horizontalDistance = Math.min(
             Math.abs(wrist.x - box.x),
             Math.abs(wrist.x - box.right)
         ) / box.width;
 
         const withinSideY =
-            wrist.y >= box.y - box.height * CONFIG.HAND_SIDE_MARGIN_Y &&
-            wrist.y <= box.bottom + box.height * CONFIG.HAND_SIDE_MARGIN_Y;
+            wrist.y >=
+                box.y - box.height * CONFIG.HAND_SIDE_MARGIN_Y &&
+            wrist.y <=
+                box.bottom + box.height * CONFIG.HAND_SIDE_MARGIN_Y;
 
         const nearSide =
             horizontalDistance <= CONFIG.HAND_SIDE_MARGIN_X &&
             withinSideY;
 
-        if (!nearTop && !nearSide) return null;
+        if (!nearTop && !nearCorner && !nearSide) {
+            return null;
+        }
 
         const topScore = nearTop
             ? 1 - topDistance / CONFIG.HAND_TOP_MARGIN_Y
             : 0;
 
-        const sideScore = nearSide
-            ? 1 - horizontalDistance / CONFIG.HAND_SIDE_MARGIN_X
+        const cornerScore = nearCorner
+            ? 1 - cornerVerticalDistance /
+                CONFIG.HAND_CORNER_MARGIN_Y
             : 0;
 
-        const positionScore = Math.max(topScore, sideScore);
+        const sideScore = nearSide
+            ? 1 - horizontalDistance /
+                CONFIG.HAND_SIDE_MARGIN_X
+            : 0;
+
+        const positionScore = Math.max(
+            topScore,
+            cornerScore,
+            sideScore
+        );
+
+        let type = "角付近";
+
+        if (nearTop && (nearCorner || nearSide)) {
+            type = "上面・手前側の角付近";
+        } else if (nearTop) {
+            type = "上面付近";
+        } else if (nearSide) {
+            type = "側面境界付近";
+        }
 
         return {
-            type: nearTop && nearSide
-                ? "上面・側面境界"
-                : nearTop
-                    ? "上面付近"
-                    : "側面付近",
-
+            type: type,
             score: clamp(positionScore, 0, 1),
 
+            relativeX: round(relativeX),
+            relativeY: round(relativeY),
+
             topDistance: round(topDistance),
+            cornerVerticalDistance: round(cornerVerticalDistance),
             sideDistance: round(horizontalDistance),
 
             nearTop: nearTop,
+            nearCorner: nearCorner,
             nearSide: nearSide
         };
     }
@@ -294,7 +342,6 @@
             }
 
             const wrists = getWristCandidates(frame);
-
             const handCandidates = [];
 
             wrists.forEach(function (item) {
@@ -336,7 +383,10 @@
     function smoothValues(values, windowSize) {
         return values.map(function (_, index) {
             const start = Math.max(0, index - windowSize);
-            const end = Math.min(values.length - 1, index + windowSize);
+            const end = Math.min(
+                values.length - 1,
+                index + windowSize
+            );
 
             const selected = values
                 .slice(start, end + 1)
@@ -407,7 +457,7 @@
     }
 
     // -----------------------------------------------------
-    // 着手候補 Ver1.1
+    // 着手候補 Ver1.2
     // -----------------------------------------------------
 
     function detectHandContact(features) {
@@ -415,27 +465,26 @@
 
         features.forEach(function (f) {
             f.handCandidates.forEach(function (hand) {
-                const continuity = features
-                    .slice(
-                        Math.max(
-                            0,
-                            f.index - CONFIG.HAND_CONTINUITY_WINDOW
-                        ),
-                        Math.min(
-                            features.length,
-                            f.index + CONFIG.HAND_CONTINUITY_WINDOW + 1
-                        )
+                const nearby = features.slice(
+                    Math.max(
+                        0,
+                        f.index - CONFIG.HAND_CONTINUITY_WINDOW
+                    ),
+                    Math.min(
+                        features.length,
+                        f.index + CONFIG.HAND_CONTINUITY_WINDOW + 1
                     )
-                    .filter(function (nearFrame) {
-                        return nearFrame.handCandidates.some(function (other) {
-                            return other.side === hand.side;
-                        });
-                    }).length;
+                );
+
+                const continuity = nearby.filter(function (nearFrame) {
+                    return nearFrame.handCandidates.some(function (other) {
+                        return other.side === hand.side;
+                    });
+                }).length;
 
                 const continuityScore = clamp(
-                    continuity / (
-                        CONFIG.HAND_CONTINUITY_WINDOW * 2 + 1
-                    ),
+                    continuity /
+                        (CONFIG.HAND_CONTINUITY_WINDOW * 2 + 1),
                     0,
                     1
                 );
@@ -454,8 +503,16 @@
                     type: hand.position.type,
                     confidence: confidence,
                     continuity: continuity,
+
+                    relativeX: hand.position.relativeX,
+                    relativeY: hand.position.relativeY,
+
                     topDistance: hand.position.topDistance,
-                    sideDistance: hand.position.sideDistance
+                    cornerDistance:
+                        hand.position.cornerVerticalDistance,
+                    sideDistance: hand.position.sideDistance,
+
+                    visibility: hand.visibility
                 });
             });
         });
@@ -463,13 +520,13 @@
         if (candidates.length === 0) {
             return {
                 event: missingEvent(
-                    "左右の手首が跳び箱の上面・側面付近にある候補を検出できませんでした"
+                    "左右の手首が跳び箱の上面・角・側面境界の候補範囲に入りませんでした"
                 ),
-                candidates: []
+                candidates: [],
+                nearestCandidates: []
             };
         }
 
-        // 信頼度が高い順に選ぶ
         candidates.sort(function (a, b) {
             return b.confidence - a.confidence;
         });
@@ -481,23 +538,23 @@
             selected.index,
             selected.confidence,
             selected.type +
-            "にある手首を着手候補として検出（" +
-            selected.side +
-            "手）"
+                "にある手首を着手候補として検出（" +
+                selected.side +
+                "手）"
         );
 
         event.handSide = selected.side;
         event.contactArea = selected.type;
 
-        // 低信頼度の場合は候補としてのみ表示
-        if (selected.confidence < 0.35) {
+        if (selected.confidence < CONFIG.MIN_HAND_CONFIDENCE) {
             event.detected = false;
             event.reason =
-                "着手候補はありますが、信頼度が不足しているため教師確認が必要です";
+                "着手候補はありますが信頼度が不足しています。教師による動画確認が必要です";
         }
 
         return {
             event: event,
+
             candidates: candidates.slice(0, 10).map(function (c) {
                 return {
                     index: c.index,
@@ -508,9 +565,14 @@
                     side: c.side,
                     contactArea: c.type,
                     confidence: round(c.confidence),
-                    continuity: c.continuity
+                    continuity: c.continuity,
+                    relativeX: c.relativeX,
+                    relativeY: c.relativeY,
+                    visibility: round(c.visibility)
                 };
-            })
+            }),
+
+            nearestCandidates: candidates.slice(0, 10)
         };
     }
 
@@ -719,7 +781,7 @@
             frames.length < CONFIG.MIN_FRAMES
         ) {
             lastForwardRollPhaseResult = {
-                version: "1.1",
+                version: "1.2",
                 success: false,
                 message: "骨格データが不足しています",
                 frameCount: Array.isArray(frames) ? frames.length : 0,
@@ -808,7 +870,7 @@
             landing.detected;
 
         lastForwardRollPhaseResult = {
-            version: "1.1",
+            version: "1.2",
             success: success,
 
             message: success
@@ -832,7 +894,8 @@
                 vaultDetected: validVaultCount >= 3,
                 vaultFrameCount: validVaultCount,
                 hipFrameCount: validHipCount,
-                totalFrameCount: frames.length
+                totalFrameCount: frames.length,
+                handCandidateCount: handResult.candidates.length
             },
 
             warnings: warnings.concat([
