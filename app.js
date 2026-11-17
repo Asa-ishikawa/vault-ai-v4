@@ -1,23 +1,29 @@
 
 // ============================================================
 // 跳び箱AI採点システム
-// app.js Ver9.0
+// app.js Ver9.1
 // 完全置き換え版
 //
-// 既存機能
+// Ver9.0の機能を維持
 // ・MediaPipe骨格検出
 // ・動作フェーズ検出
 // ・跳び箱検出
 // ・Dスコア計算
 // ・AI評価コメント
 // ・Eスコアと総合得点
+// ・採点結果保存
 //
-// Ver9.0追加機能
-// ・生徒別採点結果保存
-// ・保存結果一覧
-// ・保存結果の個別削除
+// Ver9.1追加機能
+// ・クラス名の保存
+// ・クラス別一覧
+// ・生徒名検索
+// ・技による絞り込み
+// ・得点順、日付順、氏名順の並べ替え
+// ・クラス集計
+// ・保存結果の詳細表示
+// ・個別削除
 //
-// ※score.jsの採点ロジックは変更しない
+// ※score.js、feedback.jsの採点ロジックは変更しない
 // ============================================================
 
 
@@ -35,13 +41,23 @@ const dScoreElement = document.getElementById("dScore");
 const eScoreElement = document.getElementById("eScore");
 const totalScoreElement = document.getElementById("totalScore");
 
+const classNameElement = document.getElementById("className");
 const studentNameElement = document.getElementById("studentName");
 const skillElement = document.getElementById("skill");
 
 const saveResultBtn = document.getElementById("saveResultBtn");
 const saveStatusElement = document.getElementById("saveStatus");
+
 const savedResultsElement = document.getElementById("savedResults");
 const refreshResultsBtn = document.getElementById("refreshResultsBtn");
+
+const filterClassElement = document.getElementById("filterClass");
+const searchStudentElement = document.getElementById("searchStudent");
+const filterSkillElement = document.getElementById("filterSkill");
+const sortResultsElement = document.getElementById("sortResults");
+
+const classSummaryElement = document.getElementById("classSummary");
+const savedResultDetailElement = document.getElementById("savedResultDetail");
 
 const ctx = canvas ? canvas.getContext("2d") : null;
 
@@ -49,7 +65,6 @@ let analyzing = false;
 let analysisFinished = false;
 let currentAnalysisId = 0;
 
-// 最新の採点結果
 let currentScoringResult = null;
 
 
@@ -363,10 +378,6 @@ if (detectBtn) {
 
         try {
 
-            // --------------------------------------------
-            // 必要な関数を確認
-            // --------------------------------------------
-
             setStatus(
                 "必要なプログラムを確認しています..."
             );
@@ -377,10 +388,6 @@ if (detectBtn) {
                 "診断：必要なプログラムの確認が完了しました！"
             );
 
-
-            // --------------------------------------------
-            // 古いデータを消去
-            // --------------------------------------------
 
             setStatus(
                 "解析データを初期化しています..."
@@ -415,10 +422,6 @@ if (detectBtn) {
             }
 
 
-            // --------------------------------------------
-            // 動画を先頭に戻す
-            // --------------------------------------------
-
             video.pause();
             video.currentTime = 0;
 
@@ -426,10 +429,6 @@ if (detectBtn) {
                 "動画データを読み込んでいます..."
             );
 
-
-            // --------------------------------------------
-            // 動画データ読み込み待ち
-            // --------------------------------------------
 
             if (video.readyState < 2) {
 
@@ -525,17 +524,9 @@ if (detectBtn) {
             if (analysisId !== currentAnalysisId) return;
 
 
-            // --------------------------------------------
-            // Canvas設定
-            // --------------------------------------------
-
             canvas.width = video.videoWidth || 640;
             canvas.height = video.videoHeight || 360;
 
-
-            // --------------------------------------------
-            // 骨格検出初期化
-            // --------------------------------------------
 
             setStatus(
                 "AI骨格検出を初期化しています..."
@@ -554,10 +545,6 @@ if (detectBtn) {
 
             if (analysisId !== currentAnalysisId) return;
 
-
-            // --------------------------------------------
-            // 動画再生
-            // --------------------------------------------
 
             setStatus(
                 "動画を再生しながら骨格を検出しています..."
@@ -617,20 +604,12 @@ async function finishAnalysis(analysisId) {
 
     try {
 
-        // --------------------------------------------
-        // Pose処理完了待ち
-        // --------------------------------------------
-
         if (typeof waitForPoseComplete === "function") {
             await waitForPoseComplete();
         }
 
         if (analysisId !== currentAnalysisId) return;
 
-
-        // --------------------------------------------
-        // フレーム取得
-        // --------------------------------------------
 
         const frames = getPoseFrames();
 
@@ -644,10 +623,6 @@ async function finishAnalysis(analysisId) {
 
         }
 
-
-        // --------------------------------------------
-        // フェーズ判定
-        // --------------------------------------------
 
         setStatus(
             "動作フェーズを判定しています..."
@@ -668,10 +643,6 @@ async function finishAnalysis(analysisId) {
 
         showPhaseInfo(phase);
 
-
-        // ========================================
-        // 着手フレームの相対位置取得
-        // ========================================
 
         const handContactFrame = frames.find(frame => {
 
@@ -703,10 +674,6 @@ async function finishAnalysis(analysisId) {
 
         }
 
-
-        // ========================================
-        // 着手位置の座標診断
-        // ========================================
 
         const vaultDiagnostic =
             document.getElementById("vaultDiagnostic");
@@ -773,19 +740,12 @@ async function finishAnalysis(analysisId) {
         }
 
 
-        // ========================================
-        // Dスコア計算
-        // ========================================
-
+        // Dスコア計算は既存のscore.jsを使用
         const result = calculateDScore(
             frames,
             phase
         );
 
-
-        // ========================================
-        // フェーズ検出結果を評価結果に引き継ぐ
-        // ========================================
 
         if (result) {
 
@@ -799,26 +759,19 @@ async function finishAnalysis(analysisId) {
                 result.details.hand = {};
             }
 
-            // 着手位置の実測値
             result.details.hand.measured =
                 phase.handMeasured;
 
-            // 着手候補数
             result.details.hand.candidateCount =
                 Array.isArray(phase.handCandidates)
                     ? phase.handCandidates.length
                     : 0;
 
-            // 選択着手フレーム
             result.details.hand.selectedFrame =
                 phase.handContact;
 
         }
 
-
-        // --------------------------------------------
-        // 結果確認
-        // --------------------------------------------
 
         if (
             !result ||
@@ -834,10 +787,6 @@ async function finishAnalysis(analysisId) {
         }
 
 
-        // --------------------------------------------
-        // Dスコア表示
-        // --------------------------------------------
-
         if (dScoreElement) {
 
             dScoreElement.textContent =
@@ -846,10 +795,6 @@ async function finishAnalysis(analysisId) {
         }
 
 
-        // --------------------------------------------
-        // AI評価コメント表示
-        // --------------------------------------------
-
         if (typeof showFeedback === "function") {
 
             showFeedback(result);
@@ -857,16 +802,8 @@ async function finishAnalysis(analysisId) {
         }
 
 
-        // --------------------------------------------
-        // Eスコア・総合得点
-        // --------------------------------------------
-
         updateTotal();
 
-
-        // --------------------------------------------
-        // 最新結果を保持
-        // --------------------------------------------
 
         currentScoringResult = result;
 
@@ -875,21 +812,17 @@ async function finishAnalysis(analysisId) {
         if (saveStatusElement) {
 
             saveStatusElement.textContent =
-                "解析完了。生徒名とEスコアを確認して保存してください。";
+                "解析完了。クラス名・生徒名・Eスコアを確認して保存してください。";
 
         }
 
-
-        // --------------------------------------------
-        // 完了
-        // --------------------------------------------
 
         setStatus(
             `解析完了。骨格取得フレーム数：${frames.length}`
         );
 
         setAppDiagnostic(
-            "Ver9.0：解析・採点が正常に完了しました！"
+            "Ver9.1：解析・採点が正常に完了しました！"
         );
 
 
@@ -1027,12 +960,23 @@ async function saveCurrentResult() {
     }
 
 
+    const className =
+        classNameElement?.value.trim() || "";
+
     const studentName =
         studentNameElement?.value.trim() || "";
 
     const skill =
         skillElement?.value || "開脚跳び";
 
+
+    if (!className) {
+
+        throw new Error(
+            "クラス名を入力してください。"
+        );
+
+    }
 
     if (!studentName) {
 
@@ -1068,12 +1012,22 @@ async function saveCurrentResult() {
     const totalScore =
         Number(totalScoreElement?.textContent);
 
+    if (!Number.isFinite(totalScore)) {
+
+        throw new Error(
+            "総合得点を計算できませんでした。"
+        );
+
+    }
+
 
     const phase =
         currentScoringResult.phase || {};
 
 
     const record = {
+
+        className: className,
 
         studentName: studentName,
 
@@ -1123,7 +1077,6 @@ async function saveCurrentResult() {
 
     const id =
         await window.VaultStorage.saveResult(record);
-
 
     return id;
 
@@ -1217,6 +1170,339 @@ function escapeHTML(value) {
 
 
 // ============================================================
+// 保存記録のクラス名を取得
+// Ver9.0以前の記録は「未設定」として扱う
+// ============================================================
+
+function getRecordClassName(record) {
+
+    const value = String(
+        record.className ?? ""
+    ).trim();
+
+    return value || "未設定";
+
+}
+
+
+// ============================================================
+// クラス選択欄を更新
+// ============================================================
+
+function updateClassOptions(results) {
+
+    if (!filterClassElement) return;
+
+    const previousValue =
+        filterClassElement.value;
+
+    const classNames = [
+        ...new Set(
+            results.map(getRecordClassName)
+        )
+    ].sort((a, b) => a.localeCompare(b, "ja"));
+
+    filterClassElement.innerHTML = `
+        <option value="">すべてのクラス</option>
+        ${classNames.map(name => `
+            <option value="${escapeHTML(name)}">
+                ${escapeHTML(name)}
+            </option>
+        `).join("")}
+    `;
+
+    if (
+        previousValue &&
+        classNames.includes(previousValue)
+    ) {
+
+        filterClassElement.value = previousValue;
+
+    }
+
+}
+
+
+// ============================================================
+// 一覧の絞り込みと並べ替え
+// ============================================================
+
+function filterAndSortResults(results) {
+
+    const selectedClass =
+        filterClassElement?.value || "";
+
+    const searchName =
+        searchStudentElement?.value.trim().toLowerCase() || "";
+
+    const selectedSkill =
+        filterSkillElement?.value || "";
+
+    const sortMode =
+        sortResultsElement?.value || "dateDesc";
+
+
+    let filtered = results.filter(record => {
+
+        const className = getRecordClassName(record);
+
+        if (
+            selectedClass &&
+            className !== selectedClass
+        ) {
+            return false;
+        }
+
+        if (
+            searchName &&
+            !String(record.studentName || "")
+                .toLowerCase()
+                .includes(searchName)
+        ) {
+            return false;
+        }
+
+        if (
+            selectedSkill &&
+            record.skill !== selectedSkill
+        ) {
+            return false;
+        }
+
+        return true;
+
+    });
+
+
+    filtered.sort((a, b) => {
+
+        switch (sortMode) {
+
+            case "dateAsc":
+                return String(a.savedAt || a.date || "")
+                    .localeCompare(String(b.savedAt || b.date || ""));
+
+            case "scoreDesc":
+                return Number(b.totalScore || 0) -
+                       Number(a.totalScore || 0);
+
+            case "scoreAsc":
+                return Number(a.totalScore || 0) -
+                       Number(b.totalScore || 0);
+
+            case "nameAsc":
+                return String(a.studentName || "")
+                    .localeCompare(
+                        String(b.studentName || ""),
+                        "ja"
+                    );
+
+            case "dateDesc":
+            default:
+                return String(b.savedAt || b.date || "")
+                    .localeCompare(String(a.savedAt || a.date || ""));
+
+        }
+
+    });
+
+    return filtered;
+
+}
+
+
+// ============================================================
+// クラス集計表示
+// ============================================================
+
+function renderClassSummary(results) {
+
+    if (!classSummaryElement) return;
+
+    const studentNames = new Set(
+        results.map(record =>
+            String(record.studentName || "").trim()
+        ).filter(Boolean)
+    );
+
+    const recordCount = results.length;
+
+    const total = results.reduce((sum, record) => {
+
+        const score = Number(record.totalScore);
+
+        return sum + (
+            Number.isFinite(score) ? score : 0
+        );
+
+    }, 0);
+
+    const average = recordCount > 0
+        ? (total / recordCount).toFixed(1)
+        : "-";
+
+    const className =
+        filterClassElement?.value || "すべてのクラス";
+
+    classSummaryElement.innerHTML = `
+        <strong>${escapeHTML(className)} の集計</strong>
+        <div style="
+            display:grid;
+            grid-template-columns:repeat(3,1fr);
+            gap:8px;
+            margin-top:10px;
+        ">
+            <div style="background:white;padding:10px;border-radius:8px;text-align:center;">
+                <strong style="font-size:22px;">${studentNames.size}</strong>
+                <br><small>記録人数</small>
+            </div>
+            <div style="background:white;padding:10px;border-radius:8px;text-align:center;">
+                <strong style="font-size:22px;">${recordCount}</strong>
+                <br><small>記録件数</small>
+            </div>
+            <div style="background:white;padding:10px;border-radius:8px;text-align:center;">
+                <strong style="font-size:22px;">${average}</strong>
+                <br><small>平均得点</small>
+            </div>
+        </div>
+    `;
+
+}
+
+
+// ============================================================
+// 保存記録の詳細表示
+// ============================================================
+
+function showSavedResultDetail(record) {
+
+    if (!savedResultDetailElement) return;
+
+    if (!record) {
+
+        savedResultDetailElement.textContent =
+            "詳細を表示できませんでした。";
+
+        return;
+
+    }
+
+
+    const details = record.details || {};
+
+    const keys = [
+        "takeOff",
+        "hand",
+        "hip",
+        "knee",
+        "landing"
+    ];
+
+    const rows = keys.map(key => {
+
+        const item = details[key] || {};
+
+        const label = item.label || key;
+
+        const score = Number(item.score);
+
+        const scoreText = Number.isFinite(score)
+            ? `${score.toFixed(1)} 点`
+            : "-";
+
+        return `
+            <tr>
+                <th>${escapeHTML(label)}</th>
+                <td>${escapeHTML(scoreText)}</td>
+                <td>${escapeHTML(item.text || "評価コメントなし")}</td>
+            </tr>
+        `;
+
+    }).join("");
+
+
+    savedResultDetailElement.innerHTML = `
+        <div style="
+            padding:14px;
+            border:1px solid #ccc;
+            border-radius:8px;
+            background:#fff;
+        ">
+            <h3>採点記録の詳細</h3>
+
+            <p>
+                <strong>クラス：</strong>
+                ${escapeHTML(getRecordClassName(record))}
+            </p>
+
+            <p>
+                <strong>生徒名：</strong>
+                ${escapeHTML(record.studentName)}
+            </p>
+
+            <p>
+                <strong>技：</strong>
+                ${escapeHTML(record.skill)}
+            </p>
+
+            <p>
+                <strong>実施日：</strong>
+                ${escapeHTML(record.date)}
+            </p>
+
+            <p>
+                <strong>総合得点：</strong>
+                ${Number(record.totalScore).toFixed(1)} 点
+            </p>
+
+            <h4>評価項目別の結果</h4>
+
+            <div style="overflow-x:auto;">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>評価項目</th>
+                            <th>得点</th>
+                            <th>評価内容</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${rows}
+                    </tbody>
+                </table>
+            </div>
+
+            <h4>総合コメント</h4>
+
+            <p style="white-space:pre-wrap;">
+                ${escapeHTML(record.totalComment || "総合コメントなし")}
+            </p>
+
+            <button
+                type="button"
+                id="closeSavedDetailBtn">
+                詳細を閉じる
+            </button>
+        </div>
+    `;
+
+    const closeButton =
+        document.getElementById("closeSavedDetailBtn");
+
+    if (closeButton) {
+
+        closeButton.addEventListener("click", () => {
+
+            savedResultDetailElement.innerHTML = "";
+
+        });
+
+    }
+
+}
+
+
+// ============================================================
 // 保存結果一覧
 // ============================================================
 
@@ -1236,14 +1522,25 @@ async function renderSavedResults() {
 
     try {
 
-        const results =
+        const allResults =
             await window.VaultStorage.getAllResults();
+
+
+        updateClassOptions(allResults);
+
+        const results =
+            filterAndSortResults(allResults);
+
+
+        renderClassSummary(results);
 
 
         if (results.length === 0) {
 
             savedResultsElement.textContent =
-                "まだ採点結果は保存されていません。";
+                allResults.length === 0
+                    ? "まだ採点結果は保存されていません。"
+                    : "条件に一致する記録はありません。";
 
             return;
 
@@ -1252,19 +1549,33 @@ async function renderSavedResults() {
 
         const rows = results.map(record => {
 
+            const id = Number(record.id);
+
+            const dScore = Number(record.dScore);
+            const eScore = Number(record.eScore);
+            const totalScore = Number(record.totalScore);
+
             return `
                 <tr>
-                    <td>${escapeHTML(record.date)}</td>
-                    <td>${escapeHTML(record.studentName)}</td>
-                    <td>${escapeHTML(record.skill)}</td>
-                    <td>${Number(record.dScore).toFixed(1)}</td>
-                    <td>${Number(record.eScore).toFixed(1)}</td>
-                    <td><strong>${Number(record.totalScore).toFixed(1)}</strong></td>
+                    <td>${escapeHTML(getRecordClassName(record))}</td>
+                    <td>${escapeHTML(record.date || "-")}</td>
+                    <td>${escapeHTML(record.studentName || "-")}</td>
+                    <td>${escapeHTML(record.skill || "-")}</td>
+                    <td>${Number.isFinite(dScore) ? dScore.toFixed(1) : "-"}</td>
+                    <td>${Number.isFinite(eScore) ? eScore.toFixed(1) : "-"}</td>
+                    <td><strong>${Number.isFinite(totalScore) ? totalScore.toFixed(1) : "-"}</strong></td>
                     <td>
                         <button
                             type="button"
+                            class="showSavedResult"
+                            data-id="${id}">
+                            詳細
+                        </button>
+
+                        <button
+                            type="button"
                             class="deleteSavedResult"
-                            data-id="${Number(record.id)}">
+                            data-id="${id}">
                             削除
                         </button>
                     </td>
@@ -1275,12 +1586,16 @@ async function renderSavedResults() {
 
 
         savedResultsElement.innerHTML = `
-            <p>保存件数：${results.length}件</p>
+            <p>
+                表示件数：<strong>${results.length}件</strong>
+                ／ 全記録：${allResults.length}件
+            </p>
 
             <div style="overflow-x:auto;">
                 <table>
                     <thead>
                         <tr>
+                            <th>クラス</th>
                             <th>実施日</th>
                             <th>生徒名</th>
                             <th>技</th>
@@ -1315,6 +1630,30 @@ async function renderSavedResults() {
 
 
 // ============================================================
+// 一覧の条件変更
+// ============================================================
+
+[
+    filterClassElement,
+    searchStudentElement,
+    filterSkillElement,
+    sortResultsElement
+].forEach(element => {
+
+    if (!element) return;
+
+    element.addEventListener("input", () => {
+        renderSavedResults();
+    });
+
+    element.addEventListener("change", () => {
+        renderSavedResults();
+    });
+
+});
+
+
+// ============================================================
 // 一覧更新ボタン
 // ============================================================
 
@@ -1330,22 +1669,55 @@ if (refreshResultsBtn) {
 
 
 // ============================================================
-// 保存結果の個別削除
+// 詳細表示・個別削除
 // ============================================================
 
 if (savedResultsElement) {
 
     savedResultsElement.addEventListener("click", async event => {
 
-        const button =
+        const detailButton =
+            event.target.closest(".showSavedResult");
+
+        const deleteButton =
             event.target.closest(".deleteSavedResult");
 
-        if (!button) return;
+
+        if (detailButton) {
+
+            const id = Number(detailButton.dataset.id);
+
+            try {
+
+                const results =
+                    await window.VaultStorage.getAllResults();
+
+                const record = results.find(item =>
+                    Number(item.id) === id
+                );
+
+                showSavedResultDetail(record);
+
+            } catch (error) {
+
+                console.error(error);
+
+                alert(
+                    "詳細を読み込めませんでした：" + error.message
+                );
+
+            }
+
+            return;
+
+        }
+
+
+        if (!deleteButton) return;
 
 
         const id =
-            Number(button.dataset.id);
-
+            Number(deleteButton.dataset.id);
 
         if (!Number.isFinite(id)) return;
 
@@ -1360,6 +1732,10 @@ if (savedResultsElement) {
         try {
 
             await window.VaultStorage.deleteResult(id);
+
+            if (savedResultDetailElement) {
+                savedResultDetailElement.innerHTML = "";
+            }
 
             await renderSavedResults();
 
@@ -1408,6 +1784,8 @@ window.renderSavedResults = renderSavedResults;
 
 window.saveCurrentResult = saveCurrentResult;
 
+window.showSavedResultDetail = showSavedResultDetail;
+
 
 // 保存結果を読み込む
 renderSavedResults();
@@ -1433,10 +1811,10 @@ if (vaultDiagnostic) {
 
 
 setAppDiagnostic(
-    "跳び箱AI採点システム Ver9.0 読み込み成功！"
+    "跳び箱AI採点システム Ver9.1 読み込み成功！"
 );
 
 
 console.log(
-    "跳び箱AI採点システム app.js Ver9.0 読み込み成功"
+    "跳び箱AI採点システム app.js Ver9.1 読み込み成功"
 );

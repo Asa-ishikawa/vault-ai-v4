@@ -4,10 +4,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>跳び箱AI採点システム Ver9.0</title>
+    <title>跳び箱AI採点システム Ver9.1</title>
     <link rel="stylesheet" href="style.css">
 
-    <!-- MediaPipe Pose -->
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
@@ -16,7 +15,7 @@
 <body>
 <div class="container">
 
-    <h1>跳び箱AI採点システム Ver9.0</h1>
+    <h1>跳び箱AI採点システム Ver9.1</h1>
 
     <div id="appDiagnostic" style="
         margin:10px 0;
@@ -32,8 +31,13 @@
     <section class="card">
         <h2>基本情報</h2>
 
+        <label for="className">クラス名</label>
+        <input type="text" id="className"
+               placeholder="例：2年2組">
+
         <label for="studentName">生徒名</label>
-        <input type="text" id="studentName" placeholder="名前を入力">
+        <input type="text" id="studentName"
+               placeholder="名前を入力">
 
         <label for="skill">技</label>
         <select id="skill">
@@ -107,13 +111,12 @@
             <tr>
                 <th>Eスコア</th>
                 <td>
-                    <input
-                        type="number"
-                        id="eScore"
-                        value="10.0"
-                        min="0"
-                        max="10"
-                        step="0.1">
+                    <input type="number"
+                           id="eScore"
+                           value="10.0"
+                           min="0"
+                           max="10"
+                           step="0.1">
                 </td>
             </tr>
             <tr>
@@ -146,9 +149,7 @@
     <section class="card">
         <h2>採点結果の保存</h2>
 
-        <p>
-            生徒名・技・採点結果を確認してから保存してください。
-        </p>
+        <p>クラス名・生徒名・技・採点結果を確認してください。</p>
 
         <button id="saveResultBtn" type="button" disabled>
             この採点結果を保存
@@ -159,17 +160,57 @@
         </p>
     </section>
 
-    <!-- 保存済み一覧 -->
+    <!-- クラス別記録管理 -->
     <section class="card">
-        <h2>保存済みの採点結果</h2>
+        <h2>クラス別 採点記録一覧</h2>
+
+        <label for="filterClass">表示するクラス</label>
+        <select id="filterClass">
+            <option value="">すべてのクラス</option>
+        </select>
+
+        <label for="searchStudent">生徒名で検索</label>
+        <input type="search"
+               id="searchStudent"
+               placeholder="生徒名を入力">
+
+        <label for="filterSkill">技で絞り込み</label>
+        <select id="filterSkill">
+            <option value="">すべての技</option>
+            <option value="開脚跳び">開脚跳び</option>
+            <option value="閉脚跳び">閉脚跳び</option>
+            <option value="台上前転">台上前転</option>
+        </select>
+
+        <label for="sortResults">並べ替え</label>
+        <select id="sortResults">
+            <option value="dateDesc">実施日が新しい順</option>
+            <option value="dateAsc">実施日が古い順</option>
+            <option value="scoreDesc">総合得点が高い順</option>
+            <option value="scoreAsc">総合得点が低い順</option>
+            <option value="nameAsc">生徒名順</option>
+        </select>
 
         <button id="refreshResultsBtn" type="button">
             一覧を更新
         </button>
 
+        <div id="classSummary" style="
+            margin:12px 0;
+            padding:12px;
+            background:#eef5ff;
+            border-radius:8px;
+        ">
+            クラス集計を読み込んでいます...
+        </div>
+
         <div id="savedResults">
             保存結果を読み込んでいます...
         </div>
+
+        <div id="savedResultDetail" style="
+            margin-top:15px;
+        "></div>
     </section>
 
 </div>
@@ -181,12 +222,8 @@
 <script src="vaultDetector.js?v=8.2"></script>
 <script src="score.js?v=6.5"></script>
 <script src="feedback.js?v=6.4"></script>
-
-<!-- 新しい保存プログラム -->
 <script src="storage.js?v=9.0"></script>
-
-<!-- メインプログラム -->
-<script src="app.js?v=9.0"></script>
+<script src="app.js?v=9.1"></script>
 
 </body>
 </html>
