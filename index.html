@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>跳び箱AI採点システム Ver9.1</title>
+    <title>跳び箱AI採点システム Ver9.2</title>
     <link rel="stylesheet" href="style.css">
 
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
@@ -15,7 +15,7 @@
 <body>
 <div class="container">
 
-    <h1>跳び箱AI採点システム Ver9.1</h1>
+    <h1>跳び箱AI採点システム Ver9.2</h1>
 
     <div id="appDiagnostic" style="
         margin:10px 0;
@@ -213,9 +213,41 @@
         "></div>
     </section>
 
+    <!-- Ver9.2 Excel出力 -->
+    <section class="card">
+        <h2>Excel出力</h2>
+
+        <p>
+            保存済みの採点記録をExcelファイルに出力します。
+            採点記録・評価項目の詳細・クラス集計を
+            1つのファイルにまとめます。
+        </p>
+
+        <label for="excelExportScope">出力する記録</label>
+        <select id="excelExportScope">
+            <option value="currentView">
+                現在の表示条件で出力
+            </option>
+            <option value="selectedClass">
+                選択したクラスだけ出力
+            </option>
+            <option value="all">
+                全クラスを出力
+            </option>
+        </select>
+
+        <button id="exportExcelBtn" type="button">
+            <span>Excelファイルを作成</span>
+        </button>
+
+        <p id="excelExportStatus" aria-live="polite">
+            Excel出力の準備ができています。
+        </p>
+    </section>
+
 </div>
 
-<!-- プログラム読み込み -->
+<!-- 既存プログラム -->
 <script src="pose.js?v=7.3"></script>
 <script src="utils.js?v=5.9"></script>
 <script src="phase.js?v=7.0"></script>
@@ -224,6 +256,12 @@
 <script src="feedback.js?v=6.4"></script>
 <script src="storage.js?v=9.0"></script>
 <script src="app.js?v=9.1"></script>
+
+<!-- Excel作成ライブラリ -->
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+
+<!-- Excel出力プログラム -->
+<script src="excel.js?v=9.2"></script>
 
 </body>
 </html>
