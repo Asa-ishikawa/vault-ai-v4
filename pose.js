@@ -1,15 +1,16 @@
 
 // ============================================================
 // 跳び箱AI採点システム
-// pose.js Ver7.2
+// pose.js Ver7.3
 // 完全置き換え版
 //
-// 修正点
-// ・2回目以降の解析でも骨格結果を受け取れるように修正
-// ・Poseの結果受信関数が古いanalysisTokenを保持する問題を解消
-// ・解析ごとの動画・Canvas情報を管理
+// Ver7.3 修正点
+// ・解析フレームを専用Canvasに固定
+// ・MediaPipeと跳び箱検出に同一画像を使用
+// ・動画時間もフレームごとに固定して保存
+// ・解析中の動画時間差による座標ずれを防止
+// ・2回目以降の解析に対応
 // ・前回の解析ループを無効化
-// ・解析完了待機に対応
 // ・既存app.jsとの互換性を維持
 // ============================================================
 
@@ -31,6 +32,14 @@ let analysisRunning = false;
 let activeVideo = null;
 let activeCanvas = null;
 let activeCtx = null;
+
+// Ver7.3：解析画像を固定するCanvas
+let activeFrameCanvas = null;
+let activeFrameCtx = null;
+
+// Ver7.3：解析中のフレーム情報
+let activeFrameTime = 0;
+let activeVaultBoxResult = null;
 
 // ============================================================
 // 診断表示
@@ -80,7 +89,7 @@ function updatePoseDiagnostic(video) {
     const duration = Number(video.duration);
 
     diagnostic.innerHTML = `
-        <strong>骨格検出診断 Ver7.2</strong><br>
+        <strong>骨格検出診断 Ver7.3</strong><br>
 
         処理フレーム数：
         <strong>${processedFrameCount}</strong><br>
@@ -194,9 +203,7 @@ function initializePose() {
         minTrackingConfidence: 0.6
     });
 
-    // 重要：
-    // ここでは特定の解析のtokenを記憶しない。
-    // 常に現在の解析対象を参照する。
+    // 常に現在の解析対象を参照する
     pose.onResults(results => {
 
         if (!analysisRunning) return;
@@ -216,6 +223,84 @@ function initializePose() {
     });
 
     console.log("MediaPipe Pose 初期化完了");
+}
+
+// ============================================================
+// Ver7.3：解析用Canvasの準備
+// ============================================================
+
+function createFrameCanvas(video) {
+    const width = Number(video.videoWidth);
+    const height = Number(video.videoHeight);
+
+    if (!width || !height) {
+        throw new Error(
+            "動画の画像サイズを取得できません。"
+        );
+    }
+
+    const canvas = document.createElement("canvas");
+
+    canvas.width = width;
+    canvas.height = height;
+
+    const ctx = canvas.getContext("2d", {
+        willReadFrequently: true
+    });
+
+    if (!ctx) {
+        throw new Error(
+            "解析用Canvasを作成できません。"
+        );
+    }
+
+    return {
+        canvas,
+        ctx
+    };
+}
+
+// ============================================================
+// Ver7.3：解析フレームを固定
+// ============================================================
+
+function captureAnalysisFrame(video) {
+    if (!activeFrameCanvas || !activeFrameCtx) {
+        throw new Error(
+            "解析用Canvasが準備されていません。"
+        );
+    }
+
+    const width = Number(video.videoWidth);
+    const height = Number(video.videoHeight);
+
+    if (
+        !width ||
+        !height ||
+        width !== activeFrameCanvas.width ||
+        height !== activeFrameCanvas.height
+    ) {
+        throw new Error(
+            "動画の画像サイズが変化しました。"
+        );
+    }
+
+    // この瞬間の動画時間を保存
+    const capturedTime = Number(video.currentTime);
+
+    // 動画の現在フレームをCanvasに固定
+    activeFrameCtx.drawImage(
+        video,
+        0,
+        0,
+        width,
+        height
+    );
+
+    return {
+        time: capturedTime,
+        canvas: activeFrameCanvas
+    };
 }
 
 // ============================================================
@@ -241,6 +326,19 @@ async function startPose(video, canvas, ctx) {
             "動画またはCanvasの情報を取得できません。"
         );
     }
+
+    // 動画サイズ確認
+    if (!video.videoWidth || !video.videoHeight) {
+        throw new Error(
+            "動画の読み込みが完了していません。"
+        );
+    }
+
+    // Ver7.3：解析用Canvasを作成
+    const frameCanvasInfo = createFrameCanvas(video);
+
+    activeFrameCanvas = frameCanvasInfo.canvas;
+    activeFrameCtx = frameCanvasInfo.ctx;
 
     // Poseの準備
     initializePose();
@@ -285,8 +383,37 @@ async function startPose(video, canvas, ctx) {
         sending = true;
 
         try {
+
+            // ------------------------------------
+            // STEP 1
+            // 解析する瞬間の映像を固定する
+            // ------------------------------------
+
+            const captured = captureAnalysisFrame(video);
+
+            activeFrameTime = captured.time;
+
+            // ------------------------------------
+            // STEP 2
+            // 固定した同一画像から跳び箱を検出
+            // ------------------------------------
+
+            activeVaultBoxResult = null;
+
+            if (
+                typeof window.detectVaultBox === "function"
+            ) {
+                activeVaultBoxResult =
+                    window.detectVaultBox(captured.canvas);
+            }
+
+            // ------------------------------------
+            // STEP 3
+            // 同じ固定画像をMediaPipeに渡す
+            // ------------------------------------
+
             await pose.send({
-                image: video
+                image: captured.canvas
             });
 
         } catch (error) {
@@ -359,18 +486,11 @@ function onResults(results, video, canvas, ctx) {
         canvas.height
     );
 
-// ========================================
-// 跳び箱検出・位置情報取得 Ver8.3
-// ========================================
+    // ========================================
+    // Ver7.3：同一画像から取得した跳び箱情報
+    // ========================================
 
-let vaultBoxResult = null;
-
-if (
-    typeof window.detectVaultBox === "function" &&
-    typeof window.drawVaultBoxDetection === "function"
-) {
-
-    vaultBoxResult = window.detectVaultBox(video);
+    const vaultBoxResult = activeVaultBoxResult;
 
     const diagnostic =
         document.getElementById("vaultDiagnostic");
@@ -382,13 +502,17 @@ if (
 
         if (diagnostic) {
             diagnostic.textContent =
-                "跳び箱検出：成功（天板位置を取得）";
+                "跳び箱検出：成功（同一フレームから取得）";
         }
 
-        window.drawVaultBoxDetection(
-            canvas,
-            vaultBoxResult
-        );
+        if (
+            typeof window.drawVaultBoxDetection === "function"
+        ) {
+            window.drawVaultBoxDetection(
+                canvas,
+                vaultBoxResult
+            );
+        }
 
     } else {
 
@@ -398,22 +522,11 @@ if (
         }
     }
 
-} else {
-
-    const diagnostic =
-        document.getElementById("vaultDiagnostic");
-
-    if (diagnostic) {
-        diagnostic.textContent =
-            "跳び箱検出：関数が読み込まれていません";
+    // 人物の骨格検出
+    if (!results.poseLandmarks) {
+        updatePoseDiagnostic(video);
+        return;
     }
-}
-
-// 人物の骨格検出
-if (!results.poseLandmarks) {
-    updatePoseDiagnostic(video);
-    return;
-}
 
     // 骨格の線を描画
     drawConnectors(
@@ -436,13 +549,10 @@ if (!results.poseLandmarks) {
         }
     );
 
-// ========================================
-// STEP 11 左右の手首を強調表示
-// ========================================
-
-
-
+    // ========================================
     // 座標を保存
+    // ========================================
+
     const landmarks = results.poseLandmarks.map(point => ({
         x: Number(point.x),
         y: Number(point.y),
@@ -477,81 +587,87 @@ if (!results.poseLandmarks) {
     const leftAnkle = landmarks[27];
     const rightAnkle = landmarks[28];
 
-// ========================================
-// 手首と跳び箱の相対位置を計算
-// ========================================
+    // ========================================
+    // 手首と跳び箱の相対位置を計算
+    // ========================================
 
-let handPositionRelativeToVault = null;
-let leftHandPositionRelativeToVault = null;
-let rightHandPositionRelativeToVault = null;
-
-if (
-    vaultBoxResult &&
-    vaultBoxResult.detected &&
-    vaultBoxResult.normalized.width > 0 &&
-    vaultBoxResult.normalized.height > 0
-) {
-    const box = vaultBoxResult.normalized;
-
-    const leftWrist = results.poseLandmarks[15];
-    const rightWrist = results.poseLandmarks[16];
-
-    if (isValidPoint(leftWrist)) {
-        leftHandPositionRelativeToVault = {
-            x: (leftWrist.x - box.x) / box.width,
-            y: (leftWrist.y - box.y) / box.height
-        };
-    }
-
-    if (isValidPoint(rightWrist)) {
-        rightHandPositionRelativeToVault = {
-            x: (rightWrist.x - box.x) / box.width,
-            y: (rightWrist.y - box.y) / box.height
-        };
-    }
+    let handPositionRelativeToVault = null;
+    let leftHandPositionRelativeToVault = null;
+    let rightHandPositionRelativeToVault = null;
 
     if (
-        leftHandPositionRelativeToVault &&
-        rightHandPositionRelativeToVault
+        vaultBoxResult &&
+        vaultBoxResult.detected &&
+        vaultBoxResult.normalized &&
+        vaultBoxResult.normalized.width > 0 &&
+        vaultBoxResult.normalized.height > 0
     ) {
-        handPositionRelativeToVault = {
-            x: (
-                leftHandPositionRelativeToVault.x +
-                rightHandPositionRelativeToVault.x
-            ) / 2,
-            y: (
-                leftHandPositionRelativeToVault.y +
-                rightHandPositionRelativeToVault.y
-            ) / 2
-        };
+
+        const box = vaultBoxResult.normalized;
+
+        if (isValidPoint(leftWrist)) {
+            leftHandPositionRelativeToVault = {
+                x: (leftWrist.x - box.x) / box.width,
+                y: (leftWrist.y - box.y) / box.height
+            };
+        }
+
+        if (isValidPoint(rightWrist)) {
+            rightHandPositionRelativeToVault = {
+                x: (rightWrist.x - box.x) / box.width,
+                y: (rightWrist.y - box.y) / box.height
+            };
+        }
+
+        if (
+            leftHandPositionRelativeToVault &&
+            rightHandPositionRelativeToVault
+        ) {
+            handPositionRelativeToVault = {
+                x: (
+                    leftHandPositionRelativeToVault.x +
+                    rightHandPositionRelativeToVault.x
+                ) / 2,
+
+                y: (
+                    leftHandPositionRelativeToVault.y +
+                    rightHandPositionRelativeToVault.y
+                ) / 2
+            };
+        }
     }
-}
+
+    // ========================================
+    // フレーム情報を保存
+    // ========================================
 
     const frameData = {
+
         frame: frameCount,
-        time: Number(video.currentTime),
 
-            // 跳び箱の天板位置
-    vaultBox: (
-        vaultBoxResult &&
-        vaultBoxResult.detected
-    ) ? {
-        x: vaultBoxResult.normalized.x,
-        y: vaultBoxResult.normalized.y,
-        width: vaultBoxResult.normalized.width,
-        height: vaultBoxResult.normalized.height,
-        confidence: vaultBoxResult.confidence
-    } : null,
+        // Ver7.3：動画時間も固定画像の取得時刻
+        time: Number(activeFrameTime),
 
-leftHandPositionRelativeToVault:
-    leftHandPositionRelativeToVault,
+        // 跳び箱の天板位置
+        vaultBox: (
+            vaultBoxResult &&
+            vaultBoxResult.detected
+        ) ? {
+            x: vaultBoxResult.normalized.x,
+            y: vaultBoxResult.normalized.y,
+            width: vaultBoxResult.normalized.width,
+            height: vaultBoxResult.normalized.height,
+            confidence: vaultBoxResult.confidence
+        } : null,
 
-rightHandPositionRelativeToVault:
-    rightHandPositionRelativeToVault,
+        leftHandPositionRelativeToVault:
+            leftHandPositionRelativeToVault,
 
-    // 手首の跳び箱に対する相対位置
-handPositionRelativeToVault:
-    handPositionRelativeToVault,
+        rightHandPositionRelativeToVault:
+            rightHandPositionRelativeToVault,
+
+        handPositionRelativeToVault:
+            handPositionRelativeToVault,
 
         landmarks: landmarks,
 
@@ -650,6 +766,13 @@ function clearPoseFrames() {
     activeCanvas = null;
     activeCtx = null;
 
+    // Ver7.3：解析Canvas情報も解除
+    activeFrameCanvas = null;
+    activeFrameCtx = null;
+
+    activeFrameTime = 0;
+    activeVaultBoxResult = null;
+
     activeToken = analysisToken;
 
     // 解析待機を初期化
@@ -677,4 +800,4 @@ window.getPoseFrameInfo = getPoseFrameInfo;
 window.showSelectedHandFrameTime = showSelectedHandFrameTime;
 window.waitForPoseComplete = waitForPoseComplete;
 
-console.log("pose.js Ver7.2 読み込み成功");
+console.log("pose.js Ver7.3 読み込み成功");
