@@ -1,14 +1,13 @@
-/* =========================================================
-   forwardRollTest.js Ver1.3
-   台上前転・手首座標詳細診断
 
-   Ver1.3 修正点
-   ・手首の実座標を表示
-   ・跳び箱の実座標を表示
-   ・跳び箱に対する相対座標を表示
-   ・左右の手首を独立して診断
-   ・Visibilityを表示
-   ・跳び箱検出フレームのみの診断表を表示
+/* =========================================================
+   forwardRollTest.js Ver1.4
+   台上前転・手首／腰／脚の詳細座標診断
+
+   Ver1.4 追加点
+   ・腰、膝、足首の実座標を表示
+   ・跳び箱に対する腰の相対座標を表示
+   ・腰・脚の通過判定から除外された理由を表示
+   ・handContactからlandingまでのフレームを診断
    ・既存の開脚跳びには影響しない
 ========================================================= */
 
@@ -19,165 +18,135 @@
         if (document.getElementById("forwardRollTestBtn")) return;
 
         const detectButton = document.getElementById("detectBtn");
+        if (!detectButton) return;
 
-        if (!detectButton) {
-            console.error("解析ボタンが見つかりません");
-            return;
-        }
+        const button = document.createElement("button");
+        button.id = "forwardRollTestBtn";
+        button.type = "button";
+        button.textContent = "台上前転の詳細診断";
+        button.style.cssText =
+            "display:block;margin:12px 0;padding:12px 18px;" +
+            "background:#2878c8;color:white;border:0;" +
+            "border-radius:6px;font-size:15px;cursor:pointer";
 
-        const testButton = document.createElement("button");
+        const area = document.createElement("div");
+        area.id = "forwardRollTestResult";
+        area.style.cssText =
+            "margin:12px 0;padding:14px;background:#f3f7fb;" +
+            "border:1px solid #cbd8e5;border-radius:8px;" +
+            "line-height:1.7;font-size:13px;overflow-wrap:anywhere";
 
-        testButton.id = "forwardRollTestBtn";
-        testButton.type = "button";
-        testButton.textContent = "台上前転の詳細診断";
+        area.textContent =
+            "動画を最後まで解析した後、詳細診断ボタンを押してください。";
 
-        testButton.style.cssText = [
-            "display:block",
-            "margin:12px 0",
-            "padding:12px 18px",
-            "background:#2878c8",
-            "color:white",
-            "border:0",
-            "border-radius:6px",
-            "font-size:15px",
-            "cursor:pointer"
-        ].join(";");
+        detectButton.insertAdjacentElement("afterend", button);
+        button.insertAdjacentElement("afterend", area);
 
-        const resultArea = document.createElement("div");
-
-        resultArea.id = "forwardRollTestResult";
-
-        resultArea.style.cssText = [
-            "margin:12px 0",
-            "padding:14px",
-            "background:#f3f7fb",
-            "border:1px solid #cbd8e5",
-            "border-radius:8px",
-            "line-height:1.7",
-            "font-size:14px",
-            "white-space:normal",
-            "overflow-wrap:anywhere"
-        ].join(";");
-
-        resultArea.innerHTML =
-            "動画を解析した後、詳細診断ボタンを押してください。";
-
-        detectButton.insertAdjacentElement("afterend", testButton);
-        testButton.insertAdjacentElement("afterend", resultArea);
-
-        testButton.addEventListener("click", function () {
-            runTest(resultArea);
+        button.addEventListener("click", function () {
+            runTest(area);
         });
     }
 
-    // =====================================================
-    // メイン処理
-    // =====================================================
-
-    function runTest(resultArea) {
-        resultArea.innerHTML = "診断処理を実行しています……";
+    function runTest(area) {
+        area.textContent = "診断中です……";
 
         try {
             if (typeof window.getPoseFrames !== "function") {
                 throw new Error("getPoseFrames が見つかりません。");
             }
-
             if (typeof window.detectForwardRollPhases !== "function") {
                 throw new Error("detectForwardRollPhases が見つかりません。");
             }
 
             const frames = window.getPoseFrames();
-
-            if (!Array.isArray(frames) || frames.length === 0) {
+            if (!Array.isArray(frames) || !frames.length) {
                 throw new Error("骨格データがありません。先に動画を解析してください。");
             }
 
             const result = window.detectForwardRollPhases(frames);
+            if (!result) throw new Error("検出結果を取得できませんでした。");
 
-            if (!result) {
-                throw new Error("検出結果を取得できませんでした。");
-            }
-
-            resultArea.innerHTML = "";
-
-            displayResult(result, resultArea);
-            displayCoordinateDiagnostics(frames, resultArea);
+            area.innerHTML = "";
+            displayResult(result, area);
+            displayBodyDiagnostics(frames, result, area);
+            displayWristDiagnostics(frames, area);
 
         } catch (error) {
-            resultArea.innerHTML =
-                "<strong>診断エラー</strong><br>" +
-                escapeHTML(error.message);
+            area.innerHTML =
+                "<strong>診断エラー</strong><p>" +
+                esc(error.message) + "</p>";
         }
     }
 
-    // =====================================================
-    // データ取得
-    // =====================================================
+    // -----------------------------------------------------
+    // 基本データ取得
+    // -----------------------------------------------------
 
     function getLandmarks(frame) {
         if (!frame) return null;
-
-        if (Array.isArray(frame.landmarks)) {
-            return frame.landmarks;
-        }
-
-        if (Array.isArray(frame.poseLandmarks)) {
-            return frame.poseLandmarks;
-        }
-
+        if (Array.isArray(frame.landmarks)) return frame.landmarks;
+        if (Array.isArray(frame.poseLandmarks)) return frame.poseLandmarks;
         return null;
     }
 
-    function getWrist(frame, landmarkIndex, directKey) {
-        if (!frame) return null;
-
+    function getPoint(frame, index) {
         const landmarks = getLandmarks(frame);
+        if (!landmarks || !landmarks[index]) return null;
 
-        let point = null;
+        const p = landmarks[index];
+        const x = Number(p.x);
+        const y = Number(p.y);
+        const visibility = Number(p.visibility);
 
-        if (
-            landmarks &&
-            landmarks[landmarkIndex]
-        ) {
-            point = landmarks[landmarkIndex];
-        }
-
-        // landmarksがない場合の補助取得
-        if (!point && frame[directKey]) {
-            point = frame[directKey];
-        }
-
-        if (!point) return null;
-
-        const x = Number(point.x);
-        const y = Number(point.y);
-        const visibility = Number(point.visibility);
-
-        if (
-            !Number.isFinite(x) ||
-            !Number.isFinite(y)
-        ) {
-            return null;
-        }
+        if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+        if (Number.isFinite(visibility) && visibility < 0.35) return null;
 
         return {
             x: x,
             y: y,
-            visibility: Number.isFinite(visibility)
-                ? visibility
-                : 0
+            visibility: Number.isFinite(visibility) ? visibility : 0
         };
     }
 
-    function getVaultBox(frame) {
+    function averagePoints(points) {
+        const valid = points.filter(Boolean);
+        if (!valid.length) return null;
+
+        return {
+            x: valid.reduce((s, p) => s + p.x, 0) / valid.length,
+            y: valid.reduce((s, p) => s + p.y, 0) / valid.length
+        };
+    }
+
+    function getHip(frame) {
+        return averagePoints([
+            getPoint(frame, 23),
+            getPoint(frame, 24)
+        ]);
+    }
+
+    function getKnees(frame) {
+        return [
+            getPoint(frame, 25),
+            getPoint(frame, 26)
+        ].filter(Boolean);
+    }
+
+    function getAnkles(frame) {
+        return [
+            getPoint(frame, 27),
+            getPoint(frame, 28)
+        ].filter(Boolean);
+    }
+
+    function getBox(frame) {
         if (!frame || !frame.vaultBox) return null;
 
-        const box = frame.vaultBox;
-
-        const x = Number(box.x);
-        const y = Number(box.y);
-        const width = Number(box.width);
-        const height = Number(box.height);
+        const b = frame.vaultBox;
+        const x = Number(b.x);
+        const y = Number(b.y);
+        const width = Number(b.width);
+        const height = Number(b.height);
 
         if (
             !Number.isFinite(x) ||
@@ -186,227 +155,248 @@
             !Number.isFinite(height) ||
             width <= 0 ||
             height <= 0
-        ) {
-            return null;
-        }
+        ) return null;
 
         return {
             x: x,
             y: y,
             width: width,
-            height: height,
-            right: x + width,
-            bottom: y + height,
-            confidence: Number(box.confidence) || 0
+            height: height
         };
     }
-
-    // =====================================================
-    // 相対座標計算
-    // =====================================================
-
-    function getRelativePosition(wrist, box) {
-        if (!wrist || !box) return null;
-
-        return {
-            x: (wrist.x - box.x) / box.width,
-            y: (wrist.y - box.y) / box.height
-        };
-    }
-
-    function getInsideBox(wrist, box) {
-        if (!wrist || !box) return false;
-
-        return (
-            wrist.x >= box.x &&
-            wrist.x <= box.right &&
-            wrist.y >= box.y &&
-            wrist.y <= box.bottom
-        );
-    }
-
-    // =====================================================
-    // 数値表示
-    // =====================================================
 
     function fmt(value) {
-        if (!Number.isFinite(value)) return "-";
-        return value.toFixed(3);
+        return Number.isFinite(value) ? value.toFixed(3) : "-";
     }
 
-    function makeCell(value) {
-        return "<td style='padding:5px;border:1px solid #ccc'>" +
-            escapeHTML(String(value)) +
-            "</td>";
+    function cell(value) {
+        return "<td style='border:1px solid #ccc;padding:4px;white-space:nowrap'>" +
+            esc(String(value)) + "</td>";
     }
 
-    // =====================================================
-    // 座標診断
-    // =====================================================
+    function tableStart(headers) {
+        let html = "<div style='overflow-x:auto'><table " +
+            "style='border-collapse:collapse;background:white;font-size:11px'>";
+        html += "<tr style='background:#e3ebf4'>";
+        headers.forEach(h => {
+            html += "<th style='border:1px solid #ccc;padding:4px'>" +
+                esc(h) + "</th>";
+        });
+        return html + "</tr>";
+    }
 
-    function displayCoordinateDiagnostics(frames, area) {
-        let html = "";
+    // -----------------------------------------------------
+    // 腰・脚の通過詳細診断
+    // -----------------------------------------------------
 
-        html += "<hr>";
-        html += "<h3>手首・跳び箱の座標診断 Ver1.2</h3>";
+    function displayBodyDiagnostics(frames, result, area) {
+        const events = result.detected || {};
+        const hand = events.handContact || {};
+        const landing = events.landing || {};
 
-        html += "<p>";
-        html += "手首の実座標と、跳び箱に対する相対座標を分けて表示します。";
-        html += "</p>";
+        let start = hand.detected ? Number(hand.frame) + 1 : 0;
+        let end = landing.detected ? Number(landing.frame) : frames.length - 1;
 
-        const sides = [
-            {
-                name: "左手首",
-                index: 15,
-                key: "leftWrist"
-            },
-            {
-                name: "右手首",
-                index: 16,
-                key: "rightWrist"
-            }
-        ];
+        if (!Number.isFinite(start)) start = 0;
+        if (!Number.isFinite(end)) end = frames.length - 1;
 
-        sides.forEach(function (side) {
-            let validCount = 0;
-            let visibleCount = 0;
-            let vaultCount = 0;
-            let candidateCount = 0;
+        start = Math.max(0, start);
+        end = Math.min(frames.length - 1, end);
 
-            const samples = [];
+        let html = "<hr><h3>腰・脚の通過 フレーム別詳細診断 Ver1.4</h3>";
+        html += "<p>診断対象：Frame " + start + " ～ Frame " + end + "</p>";
+        html += "<p>判定範囲は forwardRollPhase.js Ver1.3 と同じ条件です。</p>";
 
-            frames.forEach(function (frame, arrayIndex) {
-                const wrist = getWrist(
-                    frame,
-                    side.index,
-                    side.key
-                );
+        const rows = [];
+        const counts = {
+            noBox: 0,
+            noHip: 0,
+            horizontal: 0,
+            vertical: 0,
+            noLeg: 0,
+            inRange: 0
+        };
 
-                const box = getVaultBox(frame);
+        for (let i = start; i <= end; i++) {
+            const frame = frames[i];
+            const hip = getHip(frame);
+            const box = getBox(frame);
+            const knees = getKnees(frame);
+            const ankles = getAnkles(frame);
+            const legs = knees.concat(ankles);
 
-                if (!wrist) return;
+            let relativeX = NaN;
+            let relativeY = NaN;
+            let reason = "";
 
-                validCount++;
+            if (!box) {
+                reason = "跳び箱データなし";
+                counts.noBox++;
+            } else if (!hip) {
+                reason = "腰データなし";
+                counts.noHip++;
+            } else {
+                relativeX = (hip.x - box.x) / box.width;
+                relativeY = (hip.y - box.y) / box.width;
 
-                if (wrist.visibility >= 0.35) {
-                    visibleCount++;
-                }
+                const horizontalInside =
+                    relativeX >= -0.30 && relativeX <= 1.30;
 
-                if (!box) return;
+                const verticalInside =
+                    relativeY >= -0.45 && relativeY <= 0.45;
 
-                vaultCount++;
-
-                const relative = getRelativePosition(
-                    wrist,
-                    box
-                );
-
-                const inside = getInsideBox(wrist, box);
-
-                // 跳び箱が検出されているフレームを保存
-                if (samples.length < 20) {
-                    samples.push({
-                        frame: Number.isFinite(frame.frame)
-                            ? frame.frame
-                            : arrayIndex,
-                        time: Number(frame.time),
-                        wrist: wrist,
-                        box: box,
-                        relative: relative,
-                        inside: inside
-                    });
-                }
-
-                if (
-                    wrist.visibility >= 0.35 &&
-                    relative.x >= -0.5 &&
-                    relative.x <= 1.5 &&
-                    relative.y >= -1 &&
-                    relative.y <= 1.5
-                ) {
-                    candidateCount++;
-                }
-            });
-
-            html += "<div style='margin:14px 0;padding:12px;background:white;border:1px solid #d5dce5;border-radius:7px'>";
-
-            html += "<h4>" + side.name + "</h4>";
-
-            html += "<p>";
-            html += "手首座標取得数：" + validCount + "フレーム<br>";
-            html += "Visibility 0.35以上：" + visibleCount + "フレーム<br>";
-            html += "跳び箱同時検出数：" + vaultCount + "フレーム<br>";
-            html += "跳び箱周辺の広い範囲に入る数：" + candidateCount + "フレーム";
-            html += "</p>";
-
-            if (samples.length > 0) {
-                html += "<strong>座標一覧（最大20フレーム）</strong>";
-
-                html += "<div style='overflow-x:auto'>";
-                html += "<table style='border-collapse:collapse;width:100%;font-size:12px;background:white'>";
-
-                html += "<tr style='background:#e8eef5'>";
-                html += "<th style='padding:5px;border:1px solid #ccc'>Frame</th>";
-                html += "<th style='padding:5px;border:1px solid #ccc'>手X</th>";
-                html += "<th style='padding:5px;border:1px solid #ccc'>手Y</th>";
-                html += "<th style='padding:5px;border:1px solid #ccc'>Vis</th>";
-                html += "<th style='padding:5px;border:1px solid #ccc'>箱X</th>";
-                html += "<th style='padding:5px;border:1px solid #ccc'>箱Y</th>";
-                html += "<th style='padding:5px;border:1px solid #ccc'>箱幅</th>";
-                html += "<th style='padding:5px;border:1px solid #ccc'>箱高</th>";
-                html += "<th style='padding:5px;border:1px solid #ccc'>相対X</th>";
-                html += "<th style='padding:5px;border:1px solid #ccc'>相対Y</th>";
-                html += "<th style='padding:5px;border:1px solid #ccc'>箱内</th>";
-                html += "</tr>";
-
-                samples.forEach(function (sample) {
-                    html += "<tr>";
-
-                    html += makeCell(sample.frame);
-                    html += makeCell(fmt(sample.wrist.x));
-                    html += makeCell(fmt(sample.wrist.y));
-                    html += makeCell(fmt(sample.wrist.visibility));
-
-                    html += makeCell(fmt(sample.box.x));
-                    html += makeCell(fmt(sample.box.y));
-                    html += makeCell(fmt(sample.box.width));
-                    html += makeCell(fmt(sample.box.height));
-
-                    html += makeCell(fmt(sample.relative.x));
-                    html += makeCell(fmt(sample.relative.y));
-
-                    html += makeCell(
-                        sample.inside ? "はい" : "いいえ"
+                if (!horizontalInside) {
+                    reason = "左右範囲外";
+                    counts.horizontal++;
+                } else if (!verticalInside) {
+                    reason = "上下範囲外";
+                    counts.vertical++;
+                } else if (!legs.length) {
+                    reason = "膝・足首データなし";
+                    counts.noLeg++;
+                } else {
+                    const legsAboveHip = legs.some(
+                        p => p.y < hip.y + 0.08
                     );
 
-                    html += "</tr>";
-                });
+                    reason = legsAboveHip
+                        ? "位置条件OK・脚条件OK"
+                        : "脚が腰より上にない";
 
-                html += "</table>";
-                html += "</div>";
-
-            } else {
-                html += "<p>跳び箱と手首を同時に取得できたフレームがありません。</p>";
+                    counts.inRange++;
+                }
             }
 
-            html += "</div>";
+            rows.push({
+                frame: i,
+                hip: hip,
+                box: box,
+                knees: knees,
+                ankles: ankles,
+                rx: relativeX,
+                ry: relativeY,
+                reason: reason
+            });
+        }
+
+        html += "<div style='padding:10px;background:white;border:1px solid #ccd6e0;border-radius:6px'>";
+        html += "<strong>除外理由の集計</strong><ul>";
+        html += "<li>跳び箱データなし：" + counts.noBox + "フレーム</li>";
+        html += "<li>腰データなし：" + counts.noHip + "フレーム</li>";
+        html += "<li>左右範囲外：" + counts.horizontal + "フレーム</li>";
+        html += "<li>上下範囲外：" + counts.vertical + "フレーム</li>";
+        html += "<li>膝・足首データなし：" + counts.noLeg + "フレーム</li>";
+        html += "<li>位置条件を通過：" + counts.inRange + "フレーム</li>";
+        html += "</ul></div>";
+
+        html += "<p><strong>フレームごとの座標一覧</strong></p>";
+        html += tableStart([
+            "Frame", "腰X", "腰Y",
+            "箱X", "箱Y", "箱幅",
+            "相対X", "相対Y",
+            "膝数", "足首数", "判定・除外理由"
+        ]);
+
+        rows.forEach(r => {
+            html += "<tr>";
+            html += cell(r.frame);
+            html += cell(r.hip ? fmt(r.hip.x) : "-");
+            html += cell(r.hip ? fmt(r.hip.y) : "-");
+            html += cell(r.box ? fmt(r.box.x) : "-");
+            html += cell(r.box ? fmt(r.box.y) : "-");
+            html += cell(r.box ? fmt(r.box.width) : "-");
+            html += cell(fmt(r.rx));
+            html += cell(fmt(r.ry));
+            html += cell(r.knees.length);
+            html += cell(r.ankles.length);
+            html += cell(r.reason);
+            html += "</tr>";
         });
 
+        html += "</table></div>";
+
         html += "<p style='font-size:12px;color:#555'>";
-        html += "※相対X=0は跳び箱の左端、相対X=1は右端です。";
-        html += "相対Y=0は跳び箱の上端、相対Y=1は下端です。";
+        html += "相対X=(腰X－箱X)÷箱幅、相対Y=(腰Y－箱Y)÷箱幅。";
+        html += "判定条件は相対Xが-0.30～1.30、相対Yが-0.45～0.45です。";
         html += "</p>";
 
         area.insertAdjacentHTML("beforeend", html);
     }
 
-    // =====================================================
-    // 動作検出結果表示
-    // =====================================================
+    // -----------------------------------------------------
+    // 手首・跳び箱の座標診断
+    // -----------------------------------------------------
+
+    function displayWristDiagnostics(frames, area) {
+        let html = "<hr><h3>手首・跳び箱の座標診断</h3>";
+
+        const sides = [
+            { name: "左手首", index: 15 },
+            { name: "右手首", index: 16 }
+        ];
+
+        sides.forEach(side => {
+            let count = 0;
+            const rows = [];
+
+            frames.forEach((frame, i) => {
+                const wrist = getPoint(frame, side.index);
+                const box = getBox(frame);
+                if (!wrist || !box) return;
+
+                count++;
+                if (rows.length < 20) {
+                    rows.push({
+                        frame: i,
+                        wrist: wrist,
+                        box: box,
+                        rx: (wrist.x - box.x) / box.width,
+                        ry: (wrist.y - box.y) / box.height
+                    });
+                }
+            });
+
+            html += "<h4>" + side.name + "（跳び箱同時検出 " +
+                count + "フレーム）</h4>";
+
+            if (!rows.length) {
+                html += "<p>同時に取得できたフレームがありません。</p>";
+                return;
+            }
+
+            html += tableStart([
+                "Frame", "手X", "手Y", "Visibility",
+                "箱X", "箱Y", "箱幅", "箱高",
+                "相対X", "相対Y"
+            ]);
+
+            rows.forEach(r => {
+                html += "<tr>";
+                html += cell(r.frame);
+                html += cell(fmt(r.wrist.x));
+                html += cell(fmt(r.wrist.y));
+                html += cell(fmt(r.wrist.visibility));
+                html += cell(fmt(r.box.x));
+                html += cell(fmt(r.box.y));
+                html += cell(fmt(r.box.width));
+                html += cell(fmt(r.box.height));
+                html += cell(fmt(r.rx));
+                html += cell(fmt(r.ry));
+                html += "</tr>";
+            });
+
+            html += "</table></div>";
+        });
+
+        area.insertAdjacentHTML("beforeend", html);
+    }
+
+    // -----------------------------------------------------
+    // 動作検出結果
+    // -----------------------------------------------------
 
     function displayResult(result, area) {
         const events = result.detected || {};
-
         const labels = [
             ["takeOff", "踏切"],
             ["handContact", "着手"],
@@ -416,157 +406,84 @@
             ["landing", "着地"]
         ];
 
-        let html = "";
-
-        html += "<h3>台上前転・動作検出結果</h3>";
-
+        let html = "<h3>台上前転・動作検出結果</h3>";
         html += "<p><strong>処理結果：</strong>" +
-            escapeHTML(result.message || "結果なし") +
-            "</p>";
-
+            esc(result.message || "結果なし") + "</p>";
         html += "<p><strong>解析フレーム数：</strong>" +
-            escapeHTML(String(result.frameCount || 0)) +
-            "</p>";
+            esc(result.frameCount || 0) + "</p><hr>";
 
-        html += "<hr>";
-
-        labels.forEach(function (item) {
-            const event = events[item[0]] || {};
-            const detected = event.detected === true;
-
-            html += "<div style='margin:10px 0;padding:8px;background:white;border-radius:5px'>";
-
+        labels.forEach(item => {
+            const e = events[item[0]] || {};
+            html += "<div style='margin:8px 0;padding:8px;background:white;border-radius:5px'>";
             html += "<strong>" + item[1] + "</strong><br>";
+            html += "検出：" + (e.detected ? "あり" : "なし") + "<br>";
 
-            if (detected) {
-                html += "検出：あり<br>";
-                html += "フレーム：" +
-                    escapeHTML(String(event.frame)) +
-                    "<br>";
-
-                html += "信頼度：" +
-                    escapeHTML(String(event.confidence)) +
-                    "<br>";
-
-                html += "理由：" +
-                    escapeHTML(event.reason || "記載なし");
-
-            } else {
-                html += "検出：なし<br>";
-
-                html += "理由：" +
-                    escapeHTML(event.reason || "検出できませんでした");
+            if (e.detected) {
+                html += "フレーム：" + esc(e.frame) + "<br>";
+                html += "信頼度：" + esc(e.confidence) + "<br>";
             }
 
+            html += "理由：" + esc(e.reason || "記載なし");
             html += "</div>";
         });
 
-        const diagnostics = result.diagnostics || {};
-
+        const d = result.diagnostics || {};
         html += "<hr><strong>データ診断</strong>";
+        html += "<p>跳び箱検出：" + (d.vaultDetected ? "あり" : "不足") + "<br>";
+        html += "跳び箱検出フレーム数：" + esc(d.vaultFrameCount || 0) + "<br>";
+        html += "腰の検出フレーム数：" + esc(d.hipFrameCount || 0) + "</p>";
 
-        html += "<p>跳び箱検出：" +
-            (diagnostics.vaultDetected ? "あり" : "不足") +
-            "</p>";
-
-        html += "<p>跳び箱検出フレーム数：" +
-            escapeHTML(String(diagnostics.vaultFrameCount || 0)) +
-            "</p>";
-
-        html += "<p>腰の検出フレーム数：" +
-            escapeHTML(String(diagnostics.hipFrameCount || 0)) +
-            "</p>";
-
-        // 腰・脚の通過候補に関する詳細診断
-        const bodyPassEvent = events.bodyPass || {};
-        const bodyPassCandidateCount =
-            diagnostics.bodyPassCandidateCount !== undefined
-                ? diagnostics.bodyPassCandidateCount
-                : bodyPassEvent.candidateCount;
-
-        const bodyPassBestScore =
-            diagnostics.bodyPassBestScore !== undefined
-                ? diagnostics.bodyPassBestScore
-                : bodyPassEvent.bestScore;
+        const body = events.bodyPass || {};
+        const candidateCount = d.bodyPassCandidateCount !== undefined
+            ? d.bodyPassCandidateCount : body.candidateCount;
+        const bestScore = d.bodyPassBestScore !== undefined
+            ? d.bodyPassBestScore : body.bestScore;
 
         html += "<hr><strong>腰・脚の通過 詳細診断</strong>";
-        html += "<p>";
+        html += "<p>通過候補数：" +
+            (candidateCount !== undefined ? esc(candidateCount) : "未取得") +
+            "<br>最高信頼度：" +
+            (Number.isFinite(Number(bestScore))
+                ? Number(bestScore).toFixed(3) : "未取得") +
+            "</p>";
 
-        html += "通過候補数：" +
-            (bodyPassCandidateCount !== undefined
-                ? escapeHTML(String(bodyPassCandidateCount))
-                : "未取得（検出プログラム側に診断値がありません）") +
-            "<br>";
+        const candidates = Array.isArray(body.candidates)
+            ? body.candidates : [];
 
-        html += "最高信頼度：" +
-            (Number.isFinite(Number(bodyPassBestScore))
-                ? escapeHTML(Number(bodyPassBestScore).toFixed(3))
-                : "未取得（検出プログラム側に診断値がありません）");
-
-        html += "</p>";
-
-        const bodyPassCandidates = Array.isArray(bodyPassEvent.candidates)
-            ? bodyPassEvent.candidates
-            : [];
-
-        if (bodyPassCandidates.length > 0) {
+        if (candidates.length) {
             html += "<strong>通過候補フレーム一覧</strong><ul>";
-
-            bodyPassCandidates.slice(0, 10).forEach(function (candidate) {
-                html += "<li>";
-                html += "Frame " +
-                    escapeHTML(String(candidate.frame ?? "-")) +
-                    " / 信頼度 " +
-                    (Number.isFinite(Number(candidate.score))
-                        ? escapeHTML(Number(candidate.score).toFixed(3))
-                        : "未記録");
-                html += "</li>";
+            candidates.forEach(c => {
+                html += "<li>Frame " + esc(c.frame) +
+                    " / 信頼度 " + esc(
+                        Number.isFinite(Number(c.score))
+                            ? Number(c.score).toFixed(3) : "-"
+                    ) + "</li>";
             });
-
             html += "</ul>";
         } else {
             html += "<p>候補フレーム一覧はありません。</p>";
         }
 
-        const candidates = result.handCandidates || [];
-
+        const handCandidates = result.handCandidates || [];
         html += "<hr><strong>着手候補一覧</strong>";
 
-        if (candidates.length > 0) {
+        if (handCandidates.length) {
             html += "<ul>";
-
-            candidates.forEach(function (candidate) {
-                html += "<li>";
-                html += "Frame " +
-                    escapeHTML(String(candidate.frame)) +
-                    " / ";
-
-                html += escapeHTML(candidate.side) +
-                    " / ";
-
-                html += escapeHTML(candidate.contactArea) +
-                    " / 信頼度 ";
-
-                html += escapeHTML(String(candidate.confidence));
-                html += "</li>";
+            handCandidates.forEach(c => {
+                html += "<li>Frame " + esc(c.frame) + " / " +
+                    esc(c.side) + " / " + esc(c.contactArea) +
+                    " / 信頼度 " + esc(c.confidence) + "</li>";
             });
-
             html += "</ul>";
-
         } else {
             html += "<p>着手候補はありません。</p>";
         }
 
-        if (
-            Array.isArray(result.warnings) &&
-            result.warnings.length > 0
-        ) {
+        if (Array.isArray(result.warnings) && result.warnings.length) {
             html += "<hr><strong>確認事項</strong><ul>";
-
-            result.warnings.forEach(function (warning) {
-                html += "<li>" + escapeHTML(warning) + "</li>";
+            result.warnings.forEach(w => {
+                html += "<li>" + esc(w) + "</li>";
             });
-
             html += "</ul>";
         }
 
@@ -577,12 +494,8 @@
         area.innerHTML = html;
     }
 
-    // =====================================================
-    // HTMLエスケープ
-    // =====================================================
-
-    function escapeHTML(value) {
-        return String(value)
+    function esc(value) {
+        return String(value === undefined || value === null ? "-" : value)
             .replace(/&/g, "&amp;")
             .replace(/</g, "&lt;")
             .replace(/>/g, "&gt;")
@@ -590,15 +503,8 @@
             .replace(/'/g, "&#039;");
     }
 
-    // =====================================================
-    // 初期化
-    // =====================================================
-
     if (document.readyState === "loading") {
-        document.addEventListener(
-            "DOMContentLoaded",
-            initializeTest
-        );
+        document.addEventListener("DOMContentLoaded", initializeTest);
     } else {
         initializeTest();
     }
