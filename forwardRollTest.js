@@ -1,9 +1,8 @@
-
 /* =========================================================
-   forwardRollTest.js Ver1.2
+   forwardRollTest.js Ver1.3
    台上前転・手首座標詳細診断
 
-   Ver1.2 修正点
+   Ver1.3 修正点
    ・手首の実座標を表示
    ・跳び箱の実座標を表示
    ・跳び箱に対する相対座標を表示
@@ -477,6 +476,57 @@
         html += "<p>腰の検出フレーム数：" +
             escapeHTML(String(diagnostics.hipFrameCount || 0)) +
             "</p>";
+
+        // 腰・脚の通過候補に関する詳細診断
+        const bodyPassEvent = events.bodyPass || {};
+        const bodyPassCandidateCount =
+            diagnostics.bodyPassCandidateCount !== undefined
+                ? diagnostics.bodyPassCandidateCount
+                : bodyPassEvent.candidateCount;
+
+        const bodyPassBestScore =
+            diagnostics.bodyPassBestScore !== undefined
+                ? diagnostics.bodyPassBestScore
+                : bodyPassEvent.bestScore;
+
+        html += "<hr><strong>腰・脚の通過 詳細診断</strong>";
+        html += "<p>";
+
+        html += "通過候補数：" +
+            (bodyPassCandidateCount !== undefined
+                ? escapeHTML(String(bodyPassCandidateCount))
+                : "未取得（検出プログラム側に診断値がありません）") +
+            "<br>";
+
+        html += "最高信頼度：" +
+            (Number.isFinite(Number(bodyPassBestScore))
+                ? escapeHTML(Number(bodyPassBestScore).toFixed(3))
+                : "未取得（検出プログラム側に診断値がありません）");
+
+        html += "</p>";
+
+        const bodyPassCandidates = Array.isArray(bodyPassEvent.candidates)
+            ? bodyPassEvent.candidates
+            : [];
+
+        if (bodyPassCandidates.length > 0) {
+            html += "<strong>通過候補フレーム一覧</strong><ul>";
+
+            bodyPassCandidates.slice(0, 10).forEach(function (candidate) {
+                html += "<li>";
+                html += "Frame " +
+                    escapeHTML(String(candidate.frame ?? "-")) +
+                    " / 信頼度 " +
+                    (Number.isFinite(Number(candidate.score))
+                        ? escapeHTML(Number(candidate.score).toFixed(3))
+                        : "未記録");
+                html += "</li>";
+            });
+
+            html += "</ul>";
+        } else {
+            html += "<p>候補フレーム一覧はありません。</p>";
+        }
 
         const candidates = result.handCandidates || [];
 
