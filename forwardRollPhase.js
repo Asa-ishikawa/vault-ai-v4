@@ -1,16 +1,16 @@
 
 /* =========================================================
-   forwardRollPhase.js Ver1.2
+   forwardRollPhase.js Ver1.3
    台上前転専用・動作フェーズ検出
 
-   Ver1.2 変更点
-   ・上面と手前側の角付近を着手候補にする
-   ・上面の縦方向の許容範囲を拡張
-   ・左右の手首を独立して評価
-   ・複数フレームの連続性を評価
-   ・手首のvisibilityを信頼度に反映
-   ・候補位置の詳細を診断情報に保存
-   ・既存のphase.jsには影響しない
+   Ver1.3 変更点
+   ・腰・脚の通過判定を改善
+   ・回転終了フレームで探索を打ち切らない
+   ・着手後から着地までを探索
+   ・天板の幅を基準に腰の通過位置を評価
+   ・片側の膝・足首のデータでも評価
+   ・通過候補の詳細を診断情報に保存
+   ・既存の開脚跳び用phase.jsには影響しない
 ========================================================= */
 
 (function () {
@@ -23,23 +23,18 @@
         MIN_VISIBILITY: 0.35,
         SMOOTH_WINDOW: 3,
 
-        // 上面の候補範囲
         HAND_TOP_MARGIN_X: 0.35,
-
-        // 跳び箱の高さだけでなく幅も基準にして
-        // 上面と手前側の角付近を評価する
         HAND_TOP_MARGIN_Y: 0.25,
         HAND_CORNER_MARGIN_Y: 0.45,
-
-        // 側面の境界候補
         HAND_SIDE_MARGIN_X: 0.30,
         HAND_SIDE_MARGIN_Y: 0.25,
-
-        // 連続性
         HAND_CONTINUITY_WINDOW: 2,
+        MIN_HAND_CONFIDENCE: 0.35,
 
-        // 着手判定の最低信頼度
-        MIN_HAND_CONFIDENCE: 0.35
+        // 腰・脚の通過判定
+        BODY_PASS_MARGIN_X: 0.30,
+        BODY_PASS_MARGIN_Y: 0.45,
+        BODY_PASS_MIN_SCORE: 0.75
     };
 
     // -----------------------------------------------------
@@ -47,7 +42,9 @@
     // -----------------------------------------------------
 
     function getLandmark(frame, index) {
-        if (!frame || !Array.isArray(frame.landmarks)) return null;
+        if (!frame || !Array.isArray(frame.landmarks)) {
+            return null;
+        }
 
         const point = frame.landmarks[index];
 
@@ -59,12 +56,13 @@
             return null;
         }
 
-        const visibility =
-            Number.isFinite(point.visibility)
-                ? point.visibility
-                : 1;
+        const visibility = Number.isFinite(point.visibility)
+            ? point.visibility
+            : 1;
 
-        if (visibility < CONFIG.MIN_VISIBILITY) return null;
+        if (visibility < CONFIG.MIN_VISIBILITY) {
+            return null;
+        }
 
         return {
             x: point.x,
@@ -83,7 +81,11 @@
             sum.y += p.y;
             sum.visibility += p.visibility;
             return sum;
-        }, { x: 0, y: 0, visibility: 0 });
+        }, {
+            x: 0,
+            y: 0,
+            visibility: 0
+        });
 
         return {
             x: total.x / valid.length,
@@ -198,7 +200,7 @@
     }
 
     // -----------------------------------------------------
-    // 手首を左右別々に取得
+    // 手首の取得
     // -----------------------------------------------------
 
     function getWristCandidates(frame) {
@@ -217,7 +219,7 @@
     }
 
     // -----------------------------------------------------
-    // 跳び箱に対する手首の位置
+    // 着手位置の評価
     // -----------------------------------------------------
 
     function evaluateHandPosition(wrist, box) {
@@ -229,7 +231,6 @@
         const relativeY =
             (wrist.y - box.y) / box.height;
 
-        // 上面候補
         const topDistance =
             Math.abs(wrist.y - box.y) / box.height;
 
@@ -241,9 +242,6 @@
             withinTopX &&
             topDistance <= CONFIG.HAND_TOP_MARGIN_Y;
 
-        // 上面と手前側の角付近
-        // 跳び箱の検出枠が薄い場合に備え、
-        // 縦方向の許容範囲を箱の幅基準でも評価する
         const cornerVerticalDistance =
             Math.abs(wrist.y - box.y) / box.width;
 
@@ -252,7 +250,6 @@
             cornerVerticalDistance <=
                 CONFIG.HAND_CORNER_MARGIN_Y;
 
-        // 側面の左右境界候補
         const horizontalDistance = Math.min(
             Math.abs(wrist.x - box.x),
             Math.abs(wrist.x - box.right)
@@ -305,14 +302,11 @@
         return {
             type: type,
             score: clamp(positionScore, 0, 1),
-
             relativeX: round(relativeX),
             relativeY: round(relativeY),
-
             topDistance: round(topDistance),
             cornerVerticalDistance: round(cornerVerticalDistance),
             sideDistance: round(horizontalDistance),
-
             nearTop: nearTop,
             nearCorner: nearCorner,
             nearSide: nearSide
@@ -383,6 +377,7 @@
     function smoothValues(values, windowSize) {
         return values.map(function (_, index) {
             const start = Math.max(0, index - windowSize);
+
             const end = Math.min(
                 values.length - 1,
                 index + windowSize
@@ -401,7 +396,9 @@
     }
 
     function getVelocity(values, index) {
-        if (index <= 0 || index >= values.length - 1) return 0;
+        if (index <= 0 || index >= values.length - 1) {
+            return 0;
+        }
 
         const before = values[index - 1];
         const after = values[index + 1];
@@ -457,7 +454,7 @@
     }
 
     // -----------------------------------------------------
-    // 着手候補 Ver1.2
+    // 着手候補
     // -----------------------------------------------------
 
     function detectHandContact(features) {
@@ -503,15 +500,12 @@
                     type: hand.position.type,
                     confidence: confidence,
                     continuity: continuity,
-
                     relativeX: hand.position.relativeX,
                     relativeY: hand.position.relativeY,
-
                     topDistance: hand.position.topDistance,
                     cornerDistance:
                         hand.position.cornerVerticalDistance,
                     sideDistance: hand.position.sideDistance,
-
                     visibility: hand.visibility
                 });
             });
@@ -554,7 +548,6 @@
 
         return {
             event: event,
-
             candidates: candidates.slice(0, 10).map(function (c) {
                 return {
                     index: c.index,
@@ -571,7 +564,6 @@
                     visibility: round(c.visibility)
                 };
             }),
-
             nearestCandidates: candidates.slice(0, 10)
         };
     }
@@ -661,10 +653,15 @@
     }
 
     // -----------------------------------------------------
-    // 腰・脚の通過候補
+    // 腰・脚の通過候補 Ver1.3
     // -----------------------------------------------------
 
-    function detectBodyPass(features, handIndex, rotationEndIndex) {
+    function detectBodyPass(
+        features,
+        handIndex,
+        rotationEndIndex,
+        landingIndex
+    ) {
         if (handIndex < 0) {
             return missingEvent(
                 "着手候補がないため通過を推定できません"
@@ -673,27 +670,95 @@
 
         let bestIndex = -1;
         let bestScore = -Infinity;
+        let candidateCount = 0;
 
+        // 回転終了ではなく、着地まで調べる
         const start = handIndex + 1;
-        const end = rotationEndIndex >= start
-            ? rotationEndIndex
+
+        const end = landingIndex >= start
+            ? landingIndex
             : features.length - 1;
+
+        const diagnostics = [];
 
         for (let i = start; i <= end; i++) {
             const f = features[i];
 
-            if (!f.hip || !f.knee || !f.ankle || !f.box) continue;
+            if (!f.hip || !f.box) continue;
 
-            const hipAboveBox =
-                f.hip.y < f.box.y + f.box.height * 0.25;
+            // 腰の水平位置
+            const relativeX =
+                (f.hip.x - f.box.x) / f.box.width;
 
-            const legsAboveHip =
-                f.knee.y < f.hip.y + 0.08 ||
-                f.ankle.y < f.hip.y + 0.08;
+            // 腰の天板からの垂直距離
+            // 天板の高さだけでなく幅も基準にする
+            const relativeY =
+                (f.hip.y - f.box.y) / f.box.width;
+
+            // 跳び箱の横方向に腰が重なっているか
+            const horizontalInside =
+                relativeX >= -CONFIG.BODY_PASS_MARGIN_X &&
+                relativeX <= 1 + CONFIG.BODY_PASS_MARGIN_X;
+
+            // 腰が天板付近またはその上方にあるか
+            const verticalInside =
+                relativeY >= -CONFIG.BODY_PASS_MARGIN_Y &&
+                relativeY <= CONFIG.BODY_PASS_MARGIN_Y;
+
+            if (!horizontalInside || !verticalInside) {
+                continue;
+            }
+
+            // 膝・足首は片方のデータでも利用する
+            const knee = f.knee;
+            const ankle = f.ankle;
+
+            const legPoints = [knee, ankle].filter(Boolean);
+
+            if (legPoints.length === 0) continue;
+
+            candidateCount++;
+
+            // 水平方向の中央に近いほど高評価
+            const horizontalCenterDistance =
+                Math.abs(relativeX - 0.5);
+
+            const horizontalScore = clamp(
+                1 - horizontalCenterDistance / 0.8,
+                0,
+                1
+            );
+
+            // 天板に対して腰が適切な高さにあるか
+            const verticalScore = clamp(
+                1 - Math.abs(relativeY) /
+                    CONFIG.BODY_PASS_MARGIN_Y,
+                0,
+                1
+            );
+
+            // 膝または足首が腰より上側にあるか
+            const legsAboveHip = legPoints.some(function (point) {
+                return point.y < f.hip.y + 0.08;
+            });
+
+            const legScore = legsAboveHip ? 1 : 0;
 
             const score =
-                (hipAboveBox ? 1 : 0) +
-                (legsAboveHip ? 0.5 : 0);
+                horizontalScore * 0.35 +
+                verticalScore * 0.45 +
+                legScore * 0.20;
+
+            diagnostics.push({
+                index: i,
+                frame: getFrameNumber(f.frame, i),
+                relativeX: round(relativeX),
+                relativeY: round(relativeY),
+                horizontalScore: round(horizontalScore),
+                verticalScore: round(verticalScore),
+                legsAboveHip: legsAboveHip,
+                score: round(score)
+            });
 
             if (score > bestScore) {
                 bestScore = score;
@@ -701,18 +766,38 @@
             }
         }
 
-        if (bestIndex < 0 || bestScore < 1) {
-            return missingEvent(
-                "腰・脚の位置関係から通過候補を検出できませんでした"
+        if (
+            bestIndex < 0 ||
+            bestScore < CONFIG.BODY_PASS_MIN_SCORE
+        ) {
+            const event = missingEvent(
+                candidateCount === 0
+                    ? "着手後から着地までに、腰が跳び箱付近を通過する候補を検出できませんでした"
+                    : "腰の通過候補はありますが、位置関係の信頼度が不足しています"
             );
+
+            event.candidateCount = candidateCount;
+            event.bestScore = round(
+                Number.isFinite(bestScore) ? bestScore : 0
+            );
+
+            event.candidates = diagnostics.slice(0, 10);
+
+            return event;
         }
 
-        return makeEvent(
+        const event = makeEvent(
             features.map(f => f.frame),
             bestIndex,
-            bestScore >= 1.5 ? 0.65 : 0.4,
+            clamp(0.35 + bestScore * 0.30, 0.35, 0.65),
             "腰・膝・足首と跳び箱の位置関係から通過候補を推定"
         );
+
+        event.candidateCount = candidateCount;
+        event.bestScore = round(bestScore);
+        event.candidates = diagnostics.slice(0, 10);
+
+        return event;
     }
 
     // -----------------------------------------------------
@@ -781,7 +866,7 @@
             frames.length < CONFIG.MIN_FRAMES
         ) {
             lastForwardRollPhaseResult = {
-                version: "1.2",
+                version: "1.3",
                 success: false,
                 message: "骨格データが不足しています",
                 frameCount: Array.isArray(frames) ? frames.length : 0,
@@ -861,7 +946,8 @@
         const bodyPass = detectBodyPass(
             features,
             handIndex,
-            rotationEndIndex
+            rotationEndIndex,
+            landingIndex
         );
 
         const success =
@@ -870,7 +956,7 @@
             landing.detected;
 
         lastForwardRollPhaseResult = {
-            version: "1.2",
+            version: "1.3",
             success: success,
 
             message: success
@@ -895,7 +981,11 @@
                 vaultFrameCount: validVaultCount,
                 hipFrameCount: validHipCount,
                 totalFrameCount: frames.length,
-                handCandidateCount: handResult.candidates.length
+                handCandidateCount: handResult.candidates.length,
+                bodyPassCandidateCount:
+                    bodyPass.candidateCount || 0,
+                bodyPassBestScore:
+                    bodyPass.bestScore || 0
             },
 
             warnings: warnings.concat([
@@ -932,5 +1022,9 @@
 
     window.getLastForwardRollPhaseResult =
         getLastForwardRollPhaseResult;
+
+    console.log(
+        "forwardRollPhase.js Ver1.3 読み込み成功"
+    );
 
 })();
