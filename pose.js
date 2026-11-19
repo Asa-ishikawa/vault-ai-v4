@@ -1,7 +1,8 @@
+
 // ============================================================
 // 跳び箱AI採点システム
-// pose.js Ver7.4
-// Frame 8画像確認機能付き・完全置き換え版
+// pose.js Ver7.5
+// Frame 3～8画像確認機能付き・完全置き換え版
 //
 // Ver7.3 修正点
 // ・解析フレームを専用Canvasに固定
@@ -11,7 +12,7 @@
 // ・2回目以降の解析に対応
 // ・前回の解析ループを無効化
 // ・既存app.jsとの互換性を維持
-// ・Frame 8の解析画像を保存して診断欄に表示
+// ・Frame 3～8の解析画像を保存して診断欄に表示
 // ============================================================
 
 let pose = null;
@@ -41,9 +42,9 @@ let activeFrameCtx = null;
 let activeFrameTime = 0;
 let activeVaultBoxResult = null;
 
-// Ver7.4：確認用Frame 8画像
-let frameEightImageData = null;
-let frameEightImageTime = null;
+// Ver7.5：確認用Frame 3～8画像
+// キーは診断表と同じframe番号（0始まり）
+let diagnosticFrameImages = {};
 
 // ============================================================
 // 診断表示
@@ -121,18 +122,27 @@ function updatePoseDiagnostic(video) {
 
         <hr>
 
-        <strong>Frame 8 画像確認</strong><br>
+        <strong>Frame 3～8 画像確認</strong><br>
+        <div style="font-size:13px;color:#555;">
+            診断表と同じフレーム番号です。画像は解析時に固定した映像です。
+        </div>
         ${
-            frameEightImageData
-                ? `
-                    <div>動画時間：${Number(frameEightImageTime).toFixed(3)} 秒</div>
-                    <img
-                        src="${frameEightImageData}"
-                        alt="解析Frame 8"
-                        style="display:block;max-width:100%;height:auto;margin-top:8px;border:1px solid #999;border-radius:6px;"
-                    >
-                `
-                : "Frame 8はまだ解析されていません。"
+            [3, 4, 5, 6, 7, 8].map(frameNumber => {
+                const item = diagnosticFrameImages[frameNumber];
+                return item
+                    ? `
+                        <div style="margin-top:12px;padding:8px;background:#fff;border:1px solid #bbb;border-radius:6px;">
+                            <strong>Frame ${frameNumber}</strong>
+                            <div>動画時間：${Number(item.time).toFixed(3)} 秒</div>
+                            <img
+                                src="${item.image}"
+                                alt="解析Frame ${frameNumber}"
+                                style="display:block;max-width:100%;height:auto;margin-top:8px;border:1px solid #999;border-radius:6px;"
+                            >
+                        </div>
+                    `
+                    : `<div style="margin-top:6px;">Frame ${frameNumber}：まだ画像がありません。</div>`;
+            }).join("")
         }
     `;
 }
@@ -570,22 +580,23 @@ function onResults(results, video, canvas, ctx) {
     );
 
     // ========================================
-    // Ver7.4：Frame 8の画像を保存
-    // frameCountは0から始まるため、Frame 8は9枚目
+    // Ver7.5：Frame 3～8の画像を保存
+    // frameCountは0から始まり、診断表の番号と一致
     // ========================================
 
     if (
-        frameCount === 8 &&
+        frameCount >= 3 &&
+        frameCount <= 8 &&
         activeFrameCanvas
     ) {
         try {
-            frameEightImageData =
-                activeFrameCanvas.toDataURL("image/jpeg", 0.85);
-            frameEightImageTime = Number(activeFrameTime);
+            diagnosticFrameImages[frameCount] = {
+                image: activeFrameCanvas.toDataURL("image/jpeg", 0.85),
+                time: Number(activeFrameTime)
+            };
         } catch (error) {
-            console.error("Frame 8画像の保存に失敗:", error);
-            frameEightImageData = null;
-            frameEightImageTime = null;
+            console.error(`Frame ${frameCount}画像の保存に失敗:`, error);
+            delete diagnosticFrameImages[frameCount];
         }
     }
 
@@ -813,9 +824,8 @@ function clearPoseFrames() {
     activeFrameTime = 0;
     activeVaultBoxResult = null;
 
-    // Ver7.4：前回のFrame 8画像を消去
-    frameEightImageData = null;
-    frameEightImageTime = null;
+    // Ver7.5：前回のFrame 3～8画像を消去
+    diagnosticFrameImages = {};
 
     activeToken = analysisToken;
 
@@ -844,7 +854,7 @@ window.getPoseFrameInfo = getPoseFrameInfo;
 window.showSelectedHandFrameTime = showSelectedHandFrameTime;
 window.waitForPoseComplete = waitForPoseComplete;
 
-console.log("pose.js Ver7.4 読み込み成功");
+console.log("pose.js Ver7.5 読み込み成功");
 
 
 
