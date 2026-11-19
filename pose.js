@@ -1,8 +1,7 @@
-
 // ============================================================
 // 跳び箱AI採点システム
-// pose.js Ver7.3
-// 完全置き換え版
+// pose.js Ver7.4
+// Frame 8画像確認機能付き・完全置き換え版
 //
 // Ver7.3 修正点
 // ・解析フレームを専用Canvasに固定
@@ -12,6 +11,7 @@
 // ・2回目以降の解析に対応
 // ・前回の解析ループを無効化
 // ・既存app.jsとの互換性を維持
+// ・Frame 8の解析画像を保存して診断欄に表示
 // ============================================================
 
 let pose = null;
@@ -40,6 +40,10 @@ let activeFrameCtx = null;
 // Ver7.3：解析中のフレーム情報
 let activeFrameTime = 0;
 let activeVaultBoxResult = null;
+
+// Ver7.4：確認用Frame 8画像
+let frameEightImageData = null;
+let frameEightImageTime = null;
 
 // ============================================================
 // 診断表示
@@ -114,6 +118,22 @@ function updatePoseDiagnostic(video) {
         <div id="selectedHandDiagnostic">
             選択着手フレーム：未指定
         </div>
+
+        <hr>
+
+        <strong>Frame 8 画像確認</strong><br>
+        ${
+            frameEightImageData
+                ? `
+                    <div>動画時間：${Number(frameEightImageTime).toFixed(3)} 秒</div>
+                    <img
+                        src="${frameEightImageData}"
+                        alt="解析Frame 8"
+                        style="display:block;max-width:100%;height:auto;margin-top:8px;border:1px solid #999;border-radius:6px;"
+                    >
+                `
+                : "Frame 8はまだ解析されていません。"
+        }
     `;
 }
 
@@ -550,6 +570,26 @@ function onResults(results, video, canvas, ctx) {
     );
 
     // ========================================
+    // Ver7.4：Frame 8の画像を保存
+    // frameCountは0から始まるため、Frame 8は9枚目
+    // ========================================
+
+    if (
+        frameCount === 8 &&
+        activeFrameCanvas
+    ) {
+        try {
+            frameEightImageData =
+                activeFrameCanvas.toDataURL("image/jpeg", 0.85);
+            frameEightImageTime = Number(activeFrameTime);
+        } catch (error) {
+            console.error("Frame 8画像の保存に失敗:", error);
+            frameEightImageData = null;
+            frameEightImageTime = null;
+        }
+    }
+
+    // ========================================
     // 座標を保存
     // ========================================
 
@@ -773,6 +813,10 @@ function clearPoseFrames() {
     activeFrameTime = 0;
     activeVaultBoxResult = null;
 
+    // Ver7.4：前回のFrame 8画像を消去
+    frameEightImageData = null;
+    frameEightImageTime = null;
+
     activeToken = analysisToken;
 
     // 解析待機を初期化
@@ -800,4 +844,8 @@ window.getPoseFrameInfo = getPoseFrameInfo;
 window.showSelectedHandFrameTime = showSelectedHandFrameTime;
 window.waitForPoseComplete = waitForPoseComplete;
 
-console.log("pose.js Ver7.3 読み込み成功");
+console.log("pose.js Ver7.4 読み込み成功");
+
+
+
+
