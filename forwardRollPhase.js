@@ -1,6 +1,5 @@
-
 /* =========================================================
-   forwardRollPhase.js Ver1.3
+   forwardRollPhase.js Ver1.4
    台上前転専用・動作フェーズ検出
 
    Ver1.3 変更点
@@ -33,7 +32,8 @@
 
         // 腰・脚の通過判定
         BODY_PASS_MARGIN_X: 0.30,
-        BODY_PASS_MARGIN_Y: 0.45,
+        BODY_PASS_MAX_RELATIVE_X: 2.10,
+        BODY_PASS_MARGIN_Y: 0.75,
         BODY_PASS_MIN_SCORE: 0.75
     };
 
@@ -674,33 +674,42 @@
 
         // 回転終了ではなく、着地まで調べる
         const start = handIndex + 1;
-
         const end = landingIndex >= start
             ? landingIndex
             : features.length - 1;
 
         const diagnostics = [];
+        const relativeYByIndex = new Array(features.length).fill(null);
+
+        // 先に各フレームの腰の高さを計算する。
+        // 前後の高さの変化を使い、天板の高さを通過する動きを評価する。
+        for (let i = start; i <= end; i++) {
+            const f = features[i];
+            if (!f || !f.hip || !f.box) continue;
+
+            relativeYByIndex[i] =
+                (f.hip.y - f.box.y) / f.box.width;
+        }
 
         for (let i = start; i <= end; i++) {
             const f = features[i];
 
             if (!f.hip || !f.box) continue;
 
-            // 腰の水平位置
+            // 腰の水平位置。天板の右端を越えた位置も追跡する。
             const relativeX =
                 (f.hip.x - f.box.x) / f.box.width;
 
-            // 腰の天板からの垂直距離
-            // 天板の高さだけでなく幅も基準にする
+            // 天板上端から腰までの垂直距離
             const relativeY =
                 (f.hip.y - f.box.y) / f.box.width;
 
-            // 跳び箱の横方向に腰が重なっているか
+            // 天板の左側から右側へ進む動作を想定した広めの探索範囲。
+            // 天板の白い上面だけを検出しているため、右端を越えた腰も候補に含める。
             const horizontalInside =
                 relativeX >= -CONFIG.BODY_PASS_MARGIN_X &&
-                relativeX <= 1 + CONFIG.BODY_PASS_MARGIN_X;
+                relativeX <= CONFIG.BODY_PASS_MAX_RELATIVE_X;
 
-            // 腰が天板付近またはその上方にあるか
             const verticalInside =
                 relativeY >= -CONFIG.BODY_PASS_MARGIN_Y &&
                 relativeY <= CONFIG.BODY_PASS_MARGIN_Y;
@@ -709,27 +718,24 @@
                 continue;
             }
 
-            // 膝・足首は片方のデータでも利用する
-            const knee = f.knee;
-            const ankle = f.ankle;
-
-            const legPoints = [knee, ankle].filter(Boolean);
-
+            const legPoints = [f.knee, f.ankle].filter(Boolean);
             if (legPoints.length === 0) continue;
 
             candidateCount++;
 
-            // 水平方向の中央に近いほど高評価
-            const horizontalCenterDistance =
-                Math.abs(relativeX - 0.5);
+            // 天板の右端を越えても、一定範囲内なら段階的に評価する。
+            // 1.30までは満点、そこから右側へ離れるほど少しずつ減点する。
+            let horizontalScore = 1;
 
-            const horizontalScore = clamp(
-                1 - horizontalCenterDistance / 0.8,
-                0,
-                1
-            );
+            if (relativeX > 1.30) {
+                horizontalScore = clamp(
+                    1 - ((relativeX - 1.30) / 0.80) * 0.45,
+                    0.55,
+                    1
+                );
+            }
 
-            // 天板に対して腰が適切な高さにあるか
+            // 腰が天板上端に近いほど高く評価する。
             const verticalScore = clamp(
                 1 - Math.abs(relativeY) /
                     CONFIG.BODY_PASS_MARGIN_Y,
@@ -744,10 +750,43 @@
 
             const legScore = legsAboveHip ? 1 : 0;
 
+            // 直前の有効フレームと比較し、腰が上方向へ移動しているか確認する。
+            // 画像座標では y が小さくなるほど上方向。
+            let previousRelativeY = null;
+
+            for (let j = i - 1; j >= Math.max(start, i - 3); j--) {
+                if (Number.isFinite(relativeYByIndex[j])) {
+                    previousRelativeY = relativeYByIndex[j];
+                    break;
+                }
+            }
+
+            let trajectoryScore = 0;
+
+            if (
+                Number.isFinite(previousRelativeY) &&
+                previousRelativeY > relativeY
+            ) {
+                // 天板の高さ付近を上方向に横切る動きは強く評価する。
+                if (
+                    previousRelativeY >= 0 &&
+                    relativeY <= 0 &&
+                    Math.abs(relativeY) <= 0.30
+                ) {
+                    trajectoryScore = 1;
+                } else if (Math.abs(relativeY) <= 0.30) {
+                    trajectoryScore = 0.75;
+                } else {
+                    trajectoryScore = 0.40;
+                }
+            }
+
+            // 固定位置だけでなく、腰の上方向への移動も加味する。
             const score =
-                horizontalScore * 0.35 +
-                verticalScore * 0.45 +
-                legScore * 0.20;
+                horizontalScore * 0.30 +
+                verticalScore * 0.50 +
+                legScore * 0.10 +
+                trajectoryScore * 0.10;
 
             diagnostics.push({
                 index: i,
@@ -757,6 +796,11 @@
                 horizontalScore: round(horizontalScore),
                 verticalScore: round(verticalScore),
                 legsAboveHip: legsAboveHip,
+                legPointCount: legPoints.length,
+                trajectoryScore: round(trajectoryScore),
+                previousRelativeY: Number.isFinite(previousRelativeY)
+                    ? round(previousRelativeY)
+                    : null,
                 score: round(score)
             });
 
@@ -766,21 +810,25 @@
             }
         }
 
+        // 診断には評価点の高い候補を先に表示する。
+        diagnostics.sort(function (a, b) {
+            return b.score - a.score;
+        });
+
         if (
             bestIndex < 0 ||
             bestScore < CONFIG.BODY_PASS_MIN_SCORE
         ) {
             const event = missingEvent(
                 candidateCount === 0
-                    ? "着手後から着地までに、腰が跳び箱付近を通過する候補を検出できませんでした"
-                    : "腰の通過候補はありますが、位置関係の信頼度が不足しています"
+                    ? "着手後から着地までに、腰・脚と天板の位置関係を確認できる候補がありませんでした"
+                    : "腰の通過候補はありますが、位置・高さ・移動方向の信頼度が不足しています"
             );
 
             event.candidateCount = candidateCount;
             event.bestScore = round(
                 Number.isFinite(bestScore) ? bestScore : 0
             );
-
             event.candidates = diagnostics.slice(0, 10);
 
             return event;
@@ -790,7 +838,7 @@
             features.map(f => f.frame),
             bestIndex,
             clamp(0.35 + bestScore * 0.30, 0.35, 0.65),
-            "腰・膝・足首と跳び箱の位置関係から通過候補を推定"
+            "天板の右側へ進む腰の位置と、天板の高さを越える移動から通過候補を推定"
         );
 
         event.candidateCount = candidateCount;
@@ -866,7 +914,7 @@
             frames.length < CONFIG.MIN_FRAMES
         ) {
             lastForwardRollPhaseResult = {
-                version: "1.3",
+                version: "1.4",
                 success: false,
                 message: "骨格データが不足しています",
                 frameCount: Array.isArray(frames) ? frames.length : 0,
@@ -956,7 +1004,7 @@
             landing.detected;
 
         lastForwardRollPhaseResult = {
-            version: "1.3",
+            version: "1.4",
             success: success,
 
             message: success
@@ -1024,7 +1072,7 @@
         getLastForwardRollPhaseResult;
 
     console.log(
-        "forwardRollPhase.js Ver1.3 読み込み成功"
+        "forwardRollPhase.js Ver1.4 読み込み成功"
     );
 
 })();
