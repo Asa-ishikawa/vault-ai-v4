@@ -205,7 +205,8 @@
 
         let html = "<hr><h3>腰・脚の通過 フレーム別詳細診断 Ver1.4</h3>";
         html += "<p>診断対象：Frame " + start + " ～ Frame " + end + "</p>";
-        html += "<p>判定範囲は forwardRollPhase.js Ver1.3 と同じ条件です。</p>";
+        html += "<p>判定範囲は forwardRollPhase.js Ver1.4 の条件に合わせています。</p>";
+       
 
         const rows = [];
         const counts = {
@@ -318,7 +319,7 @@ const verticalInside =
 
         html += "<p style='font-size:12px;color:#555'>";
         html += "相対X=(腰X－箱X)÷箱幅、相対Y=(腰Y－箱Y)÷箱幅。";
-        html += "判定条件は相対Xが-0.30～1.30、相対Yが-0.45～0.45です。";
+        html += "判定条件は相対Xが-0.30～2.10、相対Yが-0.75～0.75です。";
         html += "</p>";
 
         area.insertAdjacentHTML("beforeend", html);
