@@ -239,11 +239,12 @@
                 relativeX = (hip.x - box.x) / box.width;
                 relativeY = (hip.y - box.y) / box.width;
 
-                const horizontalInside =
-                    relativeX >= -0.30 && relativeX <= 1.30;
+            
+const horizontalInside =
+    relativeX >= -0.30 && relativeX <= 2.10;
 
-                const verticalInside =
-                    relativeY >= -0.45 && relativeY <= 0.45;
+const verticalInside =
+    relativeY >= -0.75 && relativeY <= 0.75;
 
                 if (!horizontalInside) {
                     reason = "左右範囲外";
