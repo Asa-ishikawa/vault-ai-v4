@@ -1,7 +1,7 @@
 
 // ============================================================
 // 跳び箱AI採点システム
-// excel.js Ver9.2
+// excel.js Ver10.0
 //
 // Excel出力機能
 // ・現在の表示条件で出力
@@ -11,7 +11,11 @@
 // ・評価項目詳細
 // ・クラス集計
 //
-// 既存の採点ロジック・保存データ構造は変更しない
+// Ver10.0
+// ・台上前転の5項目に対応
+// ・判定保留の記録に対応
+// ・判定保留を平均点に含めない
+// ・既存の開脚跳び・閉脚跳びの記録に対応
 // ============================================================
 
 (function () {
@@ -74,6 +78,7 @@
 
     // --------------------------------------------------------
     // 数値変換
+    // null・undefined・空欄を0にしない
     // --------------------------------------------------------
 
     function getNumber(value) {
@@ -115,6 +120,25 @@
 
 
     // --------------------------------------------------------
+    // 判定状態
+    // --------------------------------------------------------
+
+    function getJudgmentStatus(record) {
+
+        if (record.skill === "台上前転") {
+
+            return record.isComplete === true
+                ? "判定完了"
+                : "判定保留";
+
+        }
+
+        return "判定完了";
+
+    }
+
+
+    // --------------------------------------------------------
     // 表示条件による絞り込み
     // --------------------------------------------------------
 
@@ -133,7 +157,7 @@
             sortResults?.value || "dateDesc";
 
 
-        let filtered = records.filter(record => {
+        const filtered = records.filter(record => {
 
             if (
                 selectedClass &&
@@ -165,6 +189,9 @@
 
         filtered.sort((a, b) => {
 
+            const aScore = getNumber(a.totalScore);
+            const bScore = getNumber(b.totalScore);
+
             switch (sortMode) {
 
                 case "dateAsc":
@@ -174,16 +201,20 @@
                         );
 
                 case "scoreDesc":
-                    return (
-                        (getNumber(b.totalScore) || 0) -
-                        (getNumber(a.totalScore) || 0)
-                    );
+
+                    if (aScore === null && bScore === null) return 0;
+                    if (aScore === null) return 1;
+                    if (bScore === null) return -1;
+
+                    return bScore - aScore;
 
                 case "scoreAsc":
-                    return (
-                        (getNumber(a.totalScore) || 0) -
-                        (getNumber(b.totalScore) || 0)
-                    );
+
+                    if (aScore === null && bScore === null) return 0;
+                    if (aScore === null) return 1;
+                    if (bScore === null) return -1;
+
+                    return aScore - bScore;
 
                 case "nameAsc":
                     return String(a.studentName || "")
@@ -217,11 +248,8 @@
         const scope = exportScope?.value || "currentView";
 
         if (scope === "all") {
-
             return allRecords;
-
         }
-
 
         if (scope === "selectedClass") {
 
@@ -241,64 +269,45 @@
 
         }
 
-
         return getFilteredRecords(allRecords);
 
     }
 
 
     // --------------------------------------------------------
-    // シート1：採点記録一覧
+    // 技ごとの評価項目
     // --------------------------------------------------------
 
-    function createRecordSheet(records) {
+    function getCriteria(record) {
 
-        const header = [
-            "クラス",
-            "実施日",
-            "生徒名",
-            "技",
-            "Dスコア",
-            "Eスコア",
-            "総合得点",
-            "保存日時"
-        ];
+        if (record.skill === "台上前転") {
 
-        const rows = records.map(record => [
+            return [
+                {
+                    key: "takeOff",
+                    label: "踏切"
+                },
+                {
+                    key: "handContact",
+                    label: "着手"
+                },
+                {
+                    key: "rotation",
+                    label: "回転"
+                },
+                {
+                    key: "bodyPass",
+                    label: "体の通過"
+                },
+                {
+                    key: "landing",
+                    label: "着地"
+                }
+            ];
 
-            getClassName(record),
+        }
 
-            getDate(record),
-
-            record.studentName || "",
-
-            record.skill || "",
-
-            getNumber(record.dScore),
-
-            getNumber(record.eScore),
-
-            getNumber(record.totalScore),
-
-            record.savedAt || ""
-
-        ]);
-
-        return XLSX.utils.aoa_to_sheet([
-            header,
-            ...rows
-        ]);
-
-    }
-
-
-    // --------------------------------------------------------
-    // シート2：評価項目詳細
-    // --------------------------------------------------------
-
-    function createDetailSheet(records) {
-
-        const criteria = [
+        return [
             {
                 key: "takeOff",
                 label: "両足踏切"
@@ -321,39 +330,107 @@
             }
         ];
 
+    }
+
+
+    // --------------------------------------------------------
+    // シート1：採点記録一覧
+    // --------------------------------------------------------
+
+    function createRecordSheet(records) {
 
         const header = [
             "クラス",
             "実施日",
             "生徒名",
             "技",
+            "判定状態",
+            "Dスコア",
+            "Eスコア",
+            "総合得点",
+            "暫定得点",
+            "判定済み項目数",
+            "判定保留項目数",
+            "保存日時"
+        ];
+
+
+        const rows = records.map(record => [
+
+            getClassName(record),
+
+            getDate(record),
+
+            record.studentName || "",
+
+            record.skill || "",
+
+            getJudgmentStatus(record),
+
+            getNumber(record.dScore),
+
+            getNumber(record.eScore),
+
+            getNumber(record.totalScore),
+
+            getNumber(record.provisionalScore),
+
+            getNumber(record.judgedCount),
+
+            getNumber(record.unknownCount),
+
+            record.savedAt || ""
+
+        ]);
+
+
+        return XLSX.utils.aoa_to_sheet([
+            header,
+            ...rows
+        ]);
+
+    }
+
+
+    // --------------------------------------------------------
+    // シート2：評価項目詳細
+    // --------------------------------------------------------
+
+    function createDetailSheet(records) {
+
+        const header = [
+            "クラス",
+            "実施日",
+            "生徒名",
+            "技",
+            "判定状態",
             "Dスコア",
             "Eスコア",
             "総合得点"
         ];
 
 
-        criteria.forEach(item => {
+        // 技ごとに異なる項目を、5枠で統一して出力
+        for (let i = 1; i <= 5; i++) {
 
             header.push(
-                item.label + " 得点"
+                `評価項目${i} 名称`,
+                `評価項目${i} 得点`,
+                `評価項目${i} 判定状態`,
+                `評価項目${i} 評価内容`,
+                `評価項目${i} 測定値・検出情報`
             );
 
-            header.push(
-                item.label + " 評価内容"
-            );
-
-            header.push(
-                item.label + " 測定値"
-            );
-
-        });
+        }
 
 
         header.push(
             "総合コメント",
             "踏切フレーム",
             "着手フレーム",
+            "回転開始フレーム",
+            "回転終了フレーム",
+            "体の通過フレーム",
             "腰最高点フレーム",
             "着地フレーム"
         );
@@ -373,6 +450,8 @@
 
                 record.skill || "",
 
+                getJudgmentStatus(record),
+
                 getNumber(record.dScore),
 
                 getNumber(record.eScore),
@@ -382,37 +461,130 @@
             ];
 
 
+            const criteria = getCriteria(record);
+
+
             criteria.forEach(item => {
 
                 const detail = details[item.key] || {};
 
-                row.push(
-                    getNumber(detail.score)
-                );
+                const score = getNumber(detail.score);
+
+                const status = detail.status ||
+                    (score === null ? "判定不能" : "判定済み");
+
+                let measured = "";
+
+
+                if (record.skill === "台上前転") {
+
+                    const confidence =
+                        getNumber(detail.confidence);
+
+                    const frame =
+                        detail.frame ?? "";
+
+                    const parts = [];
+
+                    if (frame !== "") {
+                        parts.push(`フレーム：${frame}`);
+                    }
+
+                    if (confidence !== null) {
+                        parts.push(
+                            `信頼度：${confidence.toFixed(2)}`
+                        );
+                    }
+
+                    measured = parts.join(" / ");
+
+                } else {
+
+                    if (
+                        detail.measured !== null &&
+                        detail.measured !== undefined
+                    ) {
+                        measured = String(detail.measured);
+                    }
+
+                    if (
+                        detail.value !== null &&
+                        detail.value !== undefined
+                    ) {
+                        measured = measured
+                            ? `${measured} / ${detail.value}`
+                            : String(detail.value);
+                    }
+
+                }
+
 
                 row.push(
-                    detail.text || ""
-                );
-
-                row.push(
-                    detail.measured === null ||
-                    detail.measured === undefined
-                        ? ""
-                        : String(detail.measured)
+                    item.label,
+                    score,
+                    status,
+                    detail.text || detail.reason || "",
+                    measured
                 );
 
             });
 
 
+            // 項目数が5未満の場合の空欄補充
+            for (
+                let i = criteria.length;
+                i < 5;
+                i++
+            ) {
+
+                row.push("", null, "", "", "");
+
+            }
+
+
             const phase = record.phase || {};
+            const detected = phase.detected || {};
+
+            const getFrame = key => {
+
+                const event = detected[key];
+
+                if (
+                    event &&
+                    typeof event === "object"
+                ) {
+                    return event.frame ?? "";
+                }
+
+                return event ?? "";
+
+            };
+
 
             row.push(
                 record.totalComment || "",
-                phase.takeOff ?? "",
-                phase.handContact ?? "",
+
+                record.skill === "台上前転"
+                    ? getFrame("takeOff")
+                    : phase.takeOff ?? "",
+
+                record.skill === "台上前転"
+                    ? getFrame("handContact")
+                    : phase.handContact ?? "",
+
+                getFrame("rotationStart"),
+
+                getFrame("rotationEnd"),
+
+                getFrame("bodyPass"),
+
                 phase.highestHip ?? "",
-                phase.landing ?? ""
+
+                record.skill === "台上前転"
+                    ? getFrame("landing")
+                    : phase.landing ?? ""
             );
+
 
             return row;
 
@@ -429,6 +601,7 @@
 
     // --------------------------------------------------------
     // シート3：クラス集計
+    // 判定保留の記録は平均・最高・最低に含めない
     // --------------------------------------------------------
 
     function createSummarySheet(records) {
@@ -441,9 +614,7 @@
             const className = getClassName(record);
 
             if (!groups.has(className)) {
-
                 groups.set(className, []);
-
             }
 
             groups.get(className).push(record);
@@ -455,6 +626,8 @@
             "クラス",
             "記録人数",
             "採点記録数",
+            "確定記録数",
+            "判定保留記録数",
             "平均得点",
             "最高得点",
             "最低得点"
@@ -514,6 +687,10 @@
                 students.size,
 
                 classRecords.length,
+
+                scores.length,
+
+                classRecords.length - scores.length,
 
                 average,
 
@@ -612,13 +789,19 @@
         const workbook = XLSX.utils.book_new();
 
 
-        // シート1
+        // ----------------------------------------------------
+        // シート1：採点記録一覧
+        // ----------------------------------------------------
+
         const recordSheet =
             createRecordSheet(records);
 
         setColumnWidths(
             recordSheet,
-            [16, 13, 16, 14, 12, 12, 12, 24]
+            [
+                16, 13, 16, 14, 14, 12,
+                12, 12, 12, 16, 16, 24
+            ]
         );
 
         XLSX.utils.book_append_sheet(
@@ -628,21 +811,30 @@
         );
 
 
-        // シート2
+        // ----------------------------------------------------
+        // シート2：評価項目詳細
+        // ----------------------------------------------------
+
         const detailSheet =
             createDetailSheet(records);
 
+        const detailWidths = [
+            16, 13, 16, 14, 14, 12, 12, 12
+        ];
+
+        for (let i = 0; i < 5; i++) {
+            detailWidths.push(
+                16, 12, 14, 32, 24
+            );
+        }
+
+        detailWidths.push(
+            40, 14, 14, 16, 16, 16, 18, 14
+        );
+
         setColumnWidths(
             detailSheet,
-            [
-                16, 13, 16, 14, 12, 12, 12,
-                13, 30, 18,
-                13, 30, 18,
-                13, 30, 18,
-                13, 30, 18,
-                13, 30, 18,
-                40, 14, 14, 18, 14
-            ]
+            detailWidths
         );
 
         XLSX.utils.book_append_sheet(
@@ -652,13 +844,16 @@
         );
 
 
-        // シート3
+        // ----------------------------------------------------
+        // シート3：クラス集計
+        // ----------------------------------------------------
+
         const summarySheet =
             createSummarySheet(records);
 
         setColumnWidths(
             summarySheet,
-            [18, 14, 16, 14, 14, 14]
+            [18, 14, 16, 14, 18, 14, 14, 14]
         );
 
         XLSX.utils.book_append_sheet(
@@ -668,7 +863,10 @@
         );
 
 
+        // ----------------------------------------------------
         // ファイル名
+        // ----------------------------------------------------
+
         const now = new Date();
 
         const dateString =
@@ -764,11 +962,11 @@
     // --------------------------------------------------------
 
     setStatus(
-        "Ver9.2：Excel出力プログラム読み込み成功"
+        "Ver10.0：台上前転対応Excel出力プログラム読み込み成功"
     );
 
     console.log(
-        "excel.js Ver9.2 読み込み成功"
+        "excel.js Ver10.0 読み込み成功"
     );
 
 })();
