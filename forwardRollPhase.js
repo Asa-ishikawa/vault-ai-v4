@@ -1,23 +1,22 @@
 
 /* =========================================================
-   forwardRollPhase.js Ver1.5
+   forwardRollPhase.js Ver1.6
    台上前転専用・動作フェーズ検出
 
-   Ver1.5 変更点
-   ・跳び箱の検出位置と幅を全フレームから安定化
-   ・一部フレームの誤検出による基準位置の変動を抑制
-   ・腰・脚の通過判定に安定化した天板位置を使用
-   ・回転中のフレームを優先して通過候補を探索
-   ・着地後の姿勢を通過候補にしにくくする
-   ・腰の移動方向と脚の位置を評価
-   ・通過候補の詳細診断を保存
-   ・既存の開脚跳び用phase.jsには影響しない
+   Ver1.6 変更点
+   ・Ver1.5の既存機能を維持
+   ・跳び箱検出が一時的に途切れたフレームを補完
+   ・前後の検出位置から跳び箱位置を線形補間
+   ・補完した位置を着手候補の検出にも使用
+   ・長い検出欠損は無理に補完しない
+   ・補完フレーム数を診断情報に保存
+   ・開脚跳び用phase.jsには影響しない
 ========================================================= */
 
 (function () {
     "use strict";
 
-    const VERSION = "1.5";
+    const VERSION = "1.6";
 
     let lastForwardRollPhaseResult = null;
 
@@ -34,20 +33,20 @@
         HAND_CONTINUITY_WINDOW: 2,
         MIN_HAND_CONFIDENCE: 0.35,
 
-        // 安定化した天板を使う通過判定
         BODY_PASS_MARGIN_X: 0.80,
         BODY_PASS_MAX_RELATIVE_X: 2.10,
         BODY_PASS_MARGIN_Y: 0.75,
-
-        // 通過候補の最低評価点
         BODY_PASS_MIN_SCORE: 0.55,
-
-        // 回転終了後に追加で調べるフレーム数
         BODY_PASS_AFTER_ROTATION: 1,
 
-        // 天板位置の安定化
         BOX_MIN_DETECTIONS: 3,
-        BOX_WIDTH_PERCENTILE: 0.75
+        BOX_WIDTH_PERCENTILE: 0.75,
+
+        // 一時的な検出欠損を補完する最大フレーム数
+        BOX_MAX_INTERPOLATION_GAP: 18,
+
+        // 前後どちらか一方しか検出がない場合の補完上限
+        BOX_MAX_EDGE_GAP: 3
     };
 
     // -----------------------------------------------------
@@ -281,7 +280,6 @@
             };
         }
 
-        // 天板の中心位置は中央値で安定化する
         const centersX = boxes.map(function (box) {
             return box.x + box.width / 2;
         });
@@ -293,8 +291,6 @@
         const centerX = median(centersX);
         const centerY = median(centersY);
 
-        // 一部フレームで天板が分断されて幅が小さくなるため、
-        // 幅は上位側のパーセンタイルを使う
         const widths = boxes.map(function (box) {
             return box.width;
         });
@@ -346,6 +342,144 @@
             height: round(stableHeight),
             widthValues: widths.map(round),
             centerXValues: centersX.map(round)
+        };
+    }
+
+    // -----------------------------------------------------
+    // Ver1.6 新機能
+    // 検出欠損フレームの跳び箱位置を補完
+    // -----------------------------------------------------
+
+    function cloneBox(box) {
+        return {
+            x: box.x,
+            y: box.y,
+            width: box.width,
+            height: box.height,
+            right: box.x + box.width,
+            bottom: box.y + box.height
+        };
+    }
+
+    function interpolateBox(boxA, boxB, ratio) {
+        const x =
+            boxA.x + (boxB.x - boxA.x) * ratio;
+
+        const y =
+            boxA.y + (boxB.y - boxA.y) * ratio;
+
+        const width =
+            boxA.width +
+            (boxB.width - boxA.width) * ratio;
+
+        const height =
+            boxA.height +
+            (boxB.height - boxA.height) * ratio;
+
+        return {
+            x: x,
+            y: y,
+            width: width,
+            height: height,
+            right: x + width,
+            bottom: y + height
+        };
+    }
+
+    function buildInterpolatedVaultBoxes(features) {
+        const detected = [];
+
+        features.forEach(function (feature, index) {
+            if (feature.box) {
+                detected.push({
+                    index: index,
+                    box: cloneBox(feature.box)
+                });
+
+                feature.boxEstimated = false;
+            } else {
+                feature.boxEstimated = false;
+            }
+        });
+
+        let interpolatedCount = 0;
+        let maximumGap = 0;
+
+        if (detected.length === 0) {
+            return {
+                interpolatedCount: 0,
+                maximumGap: 0,
+                detectedCount: 0
+            };
+        }
+
+        for (let i = 0; i < features.length; i++) {
+            if (features[i].box) continue;
+
+            let previous = null;
+            let next = null;
+
+            for (let j = detected.length - 1; j >= 0; j--) {
+                if (detected[j].index < i) {
+                    previous = detected[j];
+                    break;
+                }
+            }
+
+            for (let j = 0; j < detected.length; j++) {
+                if (detected[j].index > i) {
+                    next = detected[j];
+                    break;
+                }
+            }
+
+            // 前後両方に実測値がある場合
+            if (previous && next) {
+                const gap =
+                    next.index - previous.index - 1;
+
+                maximumGap = Math.max(maximumGap, gap);
+
+                if (
+                    gap <= CONFIG.BOX_MAX_INTERPOLATION_GAP
+                ) {
+                    const ratio =
+                        (i - previous.index) /
+                        (next.index - previous.index);
+
+                    features[i].box = interpolateBox(
+                        previous.box,
+                        next.box,
+                        ratio
+                    );
+
+                    features[i].boxEstimated = true;
+                    interpolatedCount++;
+                }
+
+                continue;
+            }
+
+            // 動画の先頭・末尾にある短い欠損だけ補完
+            const nearest = previous || next;
+
+            if (nearest) {
+                const gap = Math.abs(i - nearest.index);
+
+                maximumGap = Math.max(maximumGap, gap);
+
+                if (gap <= CONFIG.BOX_MAX_EDGE_GAP) {
+                    features[i].box = cloneBox(nearest.box);
+                    features[i].boxEstimated = true;
+                    interpolatedCount++;
+                }
+            }
+        }
+
+        return {
+            interpolatedCount: interpolatedCount,
+            maximumGap: maximumGap,
+            detectedCount: detected.length
         };
     }
 
@@ -514,6 +648,7 @@
                 knee: knee,
                 ankle: ankle,
                 box: box,
+                boxEstimated: false,
                 trunkAngle: trunkAngle,
                 handCandidates: handCandidates
             };
@@ -656,7 +791,8 @@
                     cornerDistance:
                         hand.position.cornerVerticalDistance,
                     sideDistance: hand.position.sideDistance,
-                    visibility: hand.visibility
+                    visibility: hand.visibility,
+                    boxEstimated: !!f.boxEstimated
                 });
             });
         });
@@ -684,11 +820,15 @@
             selected.type +
                 "にある手首を着手候補として検出（" +
                 selected.side +
-                "手）"
+                "手）" +
+                (selected.boxEstimated
+                    ? "（跳び箱位置は前後フレームから補完）"
+                    : "")
         );
 
         event.handSide = selected.side;
         event.contactArea = selected.type;
+        event.boxEstimated = selected.boxEstimated;
 
         if (selected.confidence < CONFIG.MIN_HAND_CONFIDENCE) {
             event.detected = false;
@@ -711,7 +851,8 @@
                     continuity: c.continuity,
                     relativeX: c.relativeX,
                     relativeY: c.relativeY,
-                    visibility: round(c.visibility)
+                    visibility: round(c.visibility),
+                    boxEstimated: c.boxEstimated
                 };
             }),
             nearestCandidates: candidates.slice(0, 10)
@@ -803,7 +944,7 @@
     }
 
     // -----------------------------------------------------
-    // 腰・脚の通過候補 Ver1.5
+    // 腰・脚の通過候補
     // -----------------------------------------------------
 
     function detectBodyPass(
@@ -826,11 +967,8 @@
         }
 
         const referenceBox = stableVault.box;
-
         const start = handIndex + 1;
 
-        // 回転終了が取れている場合は、その直後までを優先する。
-        // 着地後のしゃがみ姿勢が通過候補になることを防ぐ。
         let end;
 
         if (
@@ -851,7 +989,6 @@
             );
         }
 
-        // 着地候補が探索範囲より前にある場合は着地までに制限
         if (landingIndex >= start) {
             end = Math.min(end, landingIndex);
         }
@@ -862,7 +999,6 @@
         const relativeXByIndex =
             new Array(features.length).fill(null);
 
-        // 安定化した同じ跳び箱位置で全フレームを計算
         for (let i = start; i <= end; i++) {
             const f = features[i];
 
@@ -939,15 +1075,12 @@
 
             candidateCount++;
 
-            // 腰の水平位置を評価
-            // 天板の少し左側から右側までを対象にする
             const horizontalScore = clamp(
                 1 - Math.abs(relativeX - 0.45) / 1.25,
                 0,
                 1
             );
 
-            // 腰が天板上端に近いほど高く評価
             const verticalScore = clamp(
                 1 - Math.abs(relativeY) /
                     CONFIG.BODY_PASS_MARGIN_Y,
@@ -955,14 +1088,12 @@
                 1
             );
 
-            // 膝・足首が腰より上側にあるかを評価
             const legsAboveHip = legPoints.some(function (point) {
                 return point.y < f.hip.y;
             });
 
             const legScore = legsAboveHip ? 1 : 0;
 
-            // 前後フレームの腰の上下移動を確認
             let previousRelativeY = null;
 
             for (
@@ -998,7 +1129,6 @@
                 }
             }
 
-            // 回転中に脚が腰より上にあることを重視する
             const score =
                 horizontalScore * 0.25 +
                 verticalScore * 0.35 +
@@ -1009,22 +1139,17 @@
                 index: i,
                 frame: getFrameNumber(f.frame, i),
                 time: getTime(f.frame),
-
                 relativeX: round(relativeX),
                 relativeY: round(relativeY),
-
                 horizontalScore: round(horizontalScore),
                 verticalScore: round(verticalScore),
-
                 legsAboveHip: legsAboveHip,
                 legPointCount: legPoints.length,
                 trajectoryScore: round(trajectoryScore),
-
                 previousRelativeY:
                     Number.isFinite(previousRelativeY)
                         ? round(previousRelativeY)
                         : null,
-
                 score: round(score),
                 reason: "位置条件OK"
             };
@@ -1037,7 +1162,6 @@
             }
         }
 
-        // 診断情報は評価点の高い順にする
         diagnostics.sort(function (a, b) {
             return (b.score || 0) - (a.score || 0);
         });
@@ -1081,7 +1205,6 @@
 
         event.candidateCount = candidateCount;
         event.bestScore = round(bestScore);
-
         event.searchStartIndex = start;
         event.searchEndIndex = end;
 
@@ -1198,14 +1321,58 @@
             );
         }
 
-        // 跳び箱の位置・幅を安定化
+        // 実測された跳び箱位置から基準位置を作成
         const stableVault = buildStableVaultBox(features);
 
         if (!stableVault.detected) {
+            warnings.push(stableVault.reason);
+        }
+
+        // Ver1.6：検出が途切れたフレームの位置を補完
+        const boxInterpolation =
+            buildInterpolatedVaultBoxes(features);
+
+        if (boxInterpolation.interpolatedCount > 0) {
             warnings.push(
-                stableVault.reason
+                "跳び箱が一時的に検出できなかった " +
+                boxInterpolation.interpolatedCount +
+                " フレームについて、前後の検出位置から補完しました。"
             );
         }
+
+        if (
+            boxInterpolation.maximumGap >
+            CONFIG.BOX_MAX_INTERPOLATION_GAP
+        ) {
+            warnings.push(
+                "跳び箱の検出欠損が長いため、一部フレームは補完していません。"
+            );
+        }
+
+        // 補完後の跳び箱位置を使って手首候補を再計算
+        features.forEach(function (f) {
+            f.handCandidates = [];
+
+            if (!f.box) return;
+
+            const wrists = getWristCandidates(f.frame);
+
+            wrists.forEach(function (item) {
+                const position = evaluateHandPosition(
+                    item.point,
+                    f.box
+                );
+
+                if (!position) return;
+
+                f.handCandidates.push({
+                    side: item.side,
+                    point: item.point,
+                    position: position,
+                    visibility: item.point.visibility
+                });
+            });
+        });
 
         const hipValues = smoothValues(
             features.map(f => f.hip ? f.hip.y : null),
@@ -1289,6 +1456,12 @@
 
                 vaultFrameCount:
                     validVaultCount,
+
+                vaultInterpolatedFrameCount:
+                    boxInterpolation.interpolatedCount,
+
+                vaultMaximumGap:
+                    boxInterpolation.maximumGap,
 
                 hipFrameCount:
                     validHipCount,
