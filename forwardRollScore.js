@@ -1,9 +1,9 @@
 
 // ============================================================
 // 跳び箱AI採点システム
-// forwardRollScore.js Ver1.0
+// forwardRollScore.js Ver2.0
 //
-// 台上前転専用・暫定採点
+// 台上前転専用・動作特徴による暫定採点
 //
 // 評価項目
 // ① 踏切
@@ -12,42 +12,33 @@
 // ④ 腰・脚の通過
 // ⑤ 着地
 //
-// 注意
-// ・AIの検出信頼度による暫定評価
-// ・動作の質や安全性を確定するものではない
-// ・未検出項目は0点ではなく「判定不能」
-// ・最終評価は教師が動画を確認する
+// 各項目2点・合計10点
 //
-// 既存のscore.jsには変更を加えない
+// 注意
+// ・検出信頼度を技の出来栄えの点数に直接変換しない
+// ・動作特徴からの暫定評価
+// ・判定不能は0点にしない
+// ・最終評価は教師が動画を確認する
 // ============================================================
 
 (function () {
 
     "use strict";
 
-    const VERSION = "1.0";
-
-    // --------------------------------------------------------
-    // 信頼度による暫定点
-    // --------------------------------------------------------
+    const VERSION = "2.0";
 
     const CONFIG = {
-        TWO_POINT: 0.60,
-        ONE_POINT: 0.40
+        MIN_CONFIDENCE: 0.35,
+        EXCELLENT_SCORE: 2,
+        PARTIAL_SCORE: 1,
+        INSUFFICIENT_SCORE: 0
     };
 
-
     // --------------------------------------------------------
-    // 信頼度を安全に取得
+    // 数値の安全な取得
     // --------------------------------------------------------
 
-    function getConfidence(event) {
-
-        if (!event || typeof event !== "object") {
-            return null;
-        }
-
-        const value = event.confidence;
+    function number(value) {
 
         if (
             value === null ||
@@ -57,22 +48,13 @@
             return null;
         }
 
-        const number = Number(value);
+        const n = Number(value);
 
-        if (
-            !Number.isFinite(number) ||
-            number < 0 ||
-            number > 1
-        ) {
-            return null;
-        }
-
-        return number;
+        return Number.isFinite(n) ? n : null;
     }
 
-
     // --------------------------------------------------------
-    // イベントが検出されているか確認
+    // イベントの確認
     // --------------------------------------------------------
 
     function isDetected(event) {
@@ -84,159 +66,259 @@
         );
     }
 
+    function getConfidence(event) {
 
-    // --------------------------------------------------------
-    // 1項目の採点
-    // --------------------------------------------------------
-
-    function evaluateEvent(event, label) {
-
-        // 検出されていない
         if (!isDetected(event)) {
-
-            return {
-                label: label,
-                score: null,
-                status: "判定不能",
-                confidence: null,
-                frame: null,
-                time: null,
-                text: label + "を検出できませんでした。動画を確認してください。"
-            };
+            return null;
         }
 
+        const value = number(event.confidence);
+
+        if (
+            value === null ||
+            value < 0 ||
+            value > 1
+        ) {
+            return null;
+        }
+
+        return value;
+    }
+
+    function isReliable(event) {
 
         const confidence = getConfidence(event);
 
+        return (
+            confidence !== null &&
+            confidence >= CONFIG.MIN_CONFIDENCE
+        );
+    }
 
-        // 信頼度が取得できない
-        if (confidence === null) {
+    // --------------------------------------------------------
+    // 判定結果の共通形式
+    // --------------------------------------------------------
 
-            return {
-                label: label,
-                score: null,
-                status: "判定不能",
-                confidence: null,
-                frame: event.frame ?? null,
-                time: event.time ?? null,
-                text: label + "は検出されましたが、信頼度を取得できませんでした。"
-            };
-        }
-
-
-        // 信頼度に応じた暫定点
-        let score;
-        let status;
-        let text;
-
-
-        if (confidence >= CONFIG.TWO_POINT) {
-
-            score = 2;
-            status = "検出・高信頼度";
-            text = label + "を比較的高い信頼度で検出しました。";
-
-        }
-
-        else if (confidence >= CONFIG.ONE_POINT) {
-
-            score = 1;
-            status = "検出・中信頼度";
-            text = label + "を検出しましたが、確認が必要です。";
-
-        }
-
-        else {
-
-            score = 0;
-            status = "検出・低信頼度";
-            text = label + "の検出信頼度が低いため、動画で確認してください。";
-
-        }
-
+    function makeResult(
+        label,
+        score,
+        status,
+        reason,
+        event,
+        features
+    ) {
 
         return {
+
             label: label,
+
             score: score,
+
             status: status,
-            confidence: confidence,
-            frame: event.frame ?? null,
-            time: event.time ?? null,
-            text: text
+
+            confidence: getConfidence(event),
+
+            frame: event?.frame ?? null,
+
+            time: event?.time ?? null,
+
+            reason: reason,
+
+            text: reason,
+
+            features: features || {}
+
         };
     }
 
+    function unknown(label, reason, event) {
 
-    // --------------------------------------------------------
-    // 回転姿勢
-    //
-    // 回転開始・回転終了の両方を確認する
-    // --------------------------------------------------------
-
-    function evaluateRotation(rotationStart, rotationEnd) {
-
-        const label = "回転姿勢";
-
-
-        if (
-            !isDetected(rotationStart) ||
-            !isDetected(rotationEnd)
-        ) {
-
-            return {
-                label: label,
-                score: null,
-                status: "判定不能",
-                confidence: null,
-                frame: null,
-                time: null,
-                text: "回転の開始または終了を検出できませんでした。"
-            };
-        }
-
-
-        const startConfidence =
-            getConfidence(rotationStart);
-
-        const endConfidence =
-            getConfidence(rotationEnd);
-
-
-        if (
-            startConfidence === null ||
-            endConfidence === null
-        ) {
-
-            return {
-                label: label,
-                score: null,
-                status: "判定不能",
-                confidence: null,
-                frame: null,
-                time: null,
-                text: "回転姿勢の信頼度を取得できませんでした。"
-            };
-        }
-
-
-        // 低い方の信頼度を採用
-        const confidence = Math.min(
-            startConfidence,
-            endConfidence
-        );
-
-
-        return evaluateEvent(
-            {
-                detected: true,
-                confidence: confidence,
-                frame: rotationStart.frame,
-                time: rotationStart.time
-            },
-            label
+        return makeResult(
+            label,
+            null,
+            "判定不能",
+            reason,
+            event,
+            {}
         );
     }
 
+    // --------------------------------------------------------
+    // ① 踏切
+    //
+    // 現在のphase情報では両足の踏切を確定できない。
+    // 検出イベントだけで2点にはしない。
+    // --------------------------------------------------------
+
+    function evaluateTakeOff(event) {
+
+        if (!isDetected(event)) {
+
+            return unknown(
+                "踏切",
+                "踏切動作を検出できませんでした。",
+                event
+            );
+        }
+
+        if (!isReliable(event)) {
+
+            return unknown(
+                "踏切",
+                "踏切候補は検出されましたが、判定の確かさが不足しています。",
+                event
+            );
+        }
+
+        return unknown(
+            "踏切",
+            "踏切候補を検出しました。両足で踏み切れているか、動画で確認してください。",
+            event
+        );
+    }
+
+    // --------------------------------------------------------
+    // ② 着手
+    //
+    // 手首の位置候補だけでは実際の接触や支持を
+    // 確定できないため、教師確認を残す。
+    // --------------------------------------------------------
+
+    function evaluateHandContact(event) {
+
+        if (!isDetected(event)) {
+
+            return unknown(
+                "着手",
+                "着手位置を検出できませんでした。",
+                event
+            );
+        }
+
+        if (!isReliable(event)) {
+
+            return unknown(
+                "着手",
+                "着手候補の検出信頼度が不足しています。",
+                event
+            );
+        }
+
+        return unknown(
+            "着手",
+            "手首の位置候補を検出しました。両手の着手位置と支持姿勢を動画で確認してください。",
+            event
+        );
+    }
+
+    // --------------------------------------------------------
+    // ③ 回転姿勢
+    //
+    // 回転開始と終了の検出を確認する。
+    // ただし、現在のphase情報だけでは身体の丸まりを
+    // 正確に採点できないため、教師確認を残す。
+    // --------------------------------------------------------
+
+    function evaluateRotation(start, end) {
+
+        if (
+            !isDetected(start) ||
+            !isDetected(end)
+        ) {
+
+            return unknown(
+                "回転姿勢",
+                "回転の開始または終了を検出できませんでした。",
+                start
+            );
+        }
+
+        if (
+            !isReliable(start) ||
+            !isReliable(end)
+        ) {
+
+            return unknown(
+                "回転姿勢",
+                "回転の検出信頼度が不足しています。",
+                start
+            );
+        }
+
+        return unknown(
+            "回転姿勢",
+            "回転の開始と終了を検出しました。身体の丸まりと回転の滑らかさを動画で確認してください。",
+            start
+        );
+    }
+
+    // --------------------------------------------------------
+    // ④ 腰・脚の通過
+    //
+    // bodyPassイベントは候補検出であり、
+    // 通過の完成度を確定するものではない。
+    // --------------------------------------------------------
+
+    function evaluateBodyPass(event) {
+
+        if (!isDetected(event)) {
+
+            return unknown(
+                "腰・脚の通過",
+                "腰・脚の通過を検出できませんでした。",
+                event
+            );
+        }
+
+        if (!isReliable(event)) {
+
+            return unknown(
+                "腰・脚の通過",
+                "腰・脚の通過候補の検出信頼度が不足しています。",
+                event
+            );
+        }
+
+        return unknown(
+            "腰・脚の通過",
+            "通過候補を検出しました。腰の位置と脚の通過を動画で確認してください。",
+            event
+        );
+    }
+
+    // --------------------------------------------------------
+    // ⑤ 着地
+    //
+    // 足首の動きが小さいことだけでは接地や安定を
+    // 確定できないため、教師確認を残す。
+    // --------------------------------------------------------
+
+    function evaluateLanding(event) {
+
+        if (!isDetected(event)) {
+
+            return unknown(
+                "着地",
+                "着地候補を検出できませんでした。",
+                event
+            );
+        }
+
+        if (!isReliable(event)) {
+
+            return unknown(
+                "着地",
+                "着地候補の検出信頼度が不足しています。",
+                event
+            );
+        }
+
+        return unknown(
+            "着地",
+            "着地候補を検出しました。両足での着地と姿勢の安定を動画で確認してください。",
+            event
+        );
+    }
 
     // --------------------------------------------------------
     // メイン採点
@@ -244,15 +326,9 @@
 
     function calculateForwardRollDScore(frames, phase) {
 
-        console.log("================================");
-        console.log("forwardRollScore.js Ver" + VERSION);
-        console.log("台上前転 採点開始");
-        console.log("================================");
-
-
-        // ----------------------------------------------------
-        // データ確認
-        // ----------------------------------------------------
+        console.log(
+            "forwardRollScore.js Ver" + VERSION
+        );
 
         if (
             !Array.isArray(frames) ||
@@ -264,7 +340,6 @@
             return null;
         }
 
-
         if (
             !phase ||
             !phase.detected
@@ -275,24 +350,16 @@
             return null;
         }
 
-
         const detected = phase.detected;
-
-
-        // ----------------------------------------------------
-        // 5項目の評価
-        // ----------------------------------------------------
 
         const details = {
 
-            takeOff: evaluateEvent(
-                detected.takeOff,
-                "踏切"
+            takeOff: evaluateTakeOff(
+                detected.takeOff
             ),
 
-            handContact: evaluateEvent(
-                detected.handContact,
-                "着手"
+            handContact: evaluateHandContact(
+                detected.handContact
             ),
 
             rotation: evaluateRotation(
@@ -300,22 +367,15 @@
                 detected.rotationEnd
             ),
 
-            bodyPass: evaluateEvent(
-                detected.bodyPass,
-                "腰・脚の通過"
+            bodyPass: evaluateBodyPass(
+                detected.bodyPass
             ),
 
-            landing: evaluateEvent(
-                detected.landing,
-                "着地"
+            landing: evaluateLanding(
+                detected.landing
             )
 
         };
-
-
-        // ----------------------------------------------------
-        // 判定できた項目だけ合計
-        // ----------------------------------------------------
 
         const keys = [
             "takeOff",
@@ -325,19 +385,15 @@
             "landing"
         ];
 
-
         let totalScore = 0;
         let judgedCount = 0;
         let unknownCount = 0;
-
 
         keys.forEach(function (key) {
 
             const item = details[key];
 
-            if (
-                Number.isFinite(item.score)
-            ) {
+            if (Number.isFinite(item.score)) {
 
                 totalScore += item.score;
                 judgedCount++;
@@ -350,18 +406,7 @@
 
         });
 
-
-        const isComplete =
-            judgedCount === 5;
-
-
-        // ----------------------------------------------------
-        // 結果
-        //
-        // score：判定できた項目の暫定点合計
-        // maxScore：判定できた項目の配点合計
-        // fullScore：5項目すべて判定できた場合のみ10点満点
-        // ----------------------------------------------------
+        const isComplete = judgedCount === 5;
 
         const result = {
 
@@ -387,62 +432,27 @@
 
             phase: phase,
 
-            warnings: []
+            warnings: [
+
+                "AIによる動作検出は暫定的なものです。",
+
+                "検出信頼度は技の出来栄えを示す点数ではありません。",
+
+                "両足踏切・手の接触・支持・着地の安定性は教師が動画で確認してください。",
+
+                "判定不能は0点として扱いません。"
+
+            ]
 
         };
 
-
-        // ----------------------------------------------------
-        // 注意事項
-        // ----------------------------------------------------
-
-        result.warnings.push(
-            "この点数はAIの検出信頼度に基づく暫定評価です。"
+        console.log(
+            "台上前転 採点結果",
+            result
         );
-
-        result.warnings.push(
-            "動作の質や安全性をAIだけで確定することはできません。"
-        );
-
-        result.warnings.push(
-            "最終評価は教師が動画を確認して判断してください。"
-        );
-
-
-        if (!isComplete) {
-
-            result.warnings.push(
-                "判定不能の項目があります。10点満点の確定点は表示できません。"
-            );
-
-        }
-
-
-        // ----------------------------------------------------
-        // 診断ログ
-        // ----------------------------------------------------
-
-        console.log("========== 台上前転 採点結果 ==========");
-
-        console.log("踏切:", details.takeOff);
-        console.log("着手:", details.handContact);
-        console.log("回転姿勢:", details.rotation);
-        console.log("腰・脚の通過:", details.bodyPass);
-        console.log("着地:", details.landing);
-
-        console.log("判定済み項目:", judgedCount);
-        console.log("判定不能項目:", unknownCount);
-
-        console.log("暫定合計:", totalScore);
-        console.log("判定可能な配点:", judgedCount * 2);
-        console.log("10点満点の確定:", isComplete);
-
-        console.log("======================================");
-
 
         return result;
     }
-
 
     // --------------------------------------------------------
     // 公開
@@ -451,13 +461,13 @@
     window.calculateForwardRollDScore =
         calculateForwardRollDScore;
 
-
     window.FORWARD_ROLL_SCORE_VERSION =
         VERSION;
 
-
     console.log(
-        "forwardRollScore.js Ver" + VERSION + " 読み込み成功"
+        "forwardRollScore.js Ver" +
+        VERSION +
+        " 読み込み成功"
     );
 
 })();
